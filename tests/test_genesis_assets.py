@@ -9,7 +9,7 @@ import pytest
 
 from orca_sim.genesis_assets import prepare_bimanual_orcapanda_mjcf
 from orca_sim.genesis_env import (
-    CUBE_COLLISION_PADDING,
+    CUBE_CONTACT_SKIN,
     CUBE_MJCF_PATH,
     CUBE_POSITION,
     TABLE_POSITION,
@@ -83,6 +83,8 @@ def test_prepare_mjcf_preserves_panda_and_recomputes_hand_inertias(
     assert "mass" not in collision.attrib
     assert collision.get("contype") == "6"
     assert collision.get("conaffinity") == "6"
+    assert collision.get("solref") == "0.001 1"
+    assert collision.get("solimp") == "0.99 0.999 0.001"
 
 
 def test_prepare_mjcf_rejects_non_orca_asset(tmp_path: Path) -> None:
@@ -123,7 +125,7 @@ def test_workbench_asset_is_grounded_and_preserves_task_surface() -> None:
         assert model.geom_contype[geom_id] == 0
 
 
-def test_cube_asset_separates_support_and_hand_contact_margin() -> None:
+def test_cube_asset_uses_exact_support_and_submillimetre_hand_skin() -> None:
     model = mujoco.MjModel.from_xml_path(str(CUBE_MJCF_PATH))
     body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "grasp_cube")
     np.testing.assert_allclose(model.body_pos[body_id], CUBE_POSITION)
@@ -134,13 +136,22 @@ def test_cube_asset_separates_support_and_hand_contact_margin() -> None:
     support_id = mujoco.mj_name2id(
         model, mujoco.mjtObj.mjOBJ_GEOM, "grasp_cube_support_collision"
     )
-    margin_id = mujoco.mj_name2id(
+    hand_id = mujoco.mj_name2id(
         model, mujoco.mjtObj.mjOBJ_GEOM, "grasp_cube_hand_collision"
     )
     np.testing.assert_allclose(model.geom_size[visual_id], [0.025] * 3)
     np.testing.assert_allclose(model.geom_size[support_id], [0.025] * 3)
-    np.testing.assert_allclose(model.geom_size[margin_id], [0.035, 0.035, 0.025])
-    assert model.geom_pos[margin_id, 2] == pytest.approx(CUBE_COLLISION_PADDING)
+    np.testing.assert_allclose(
+        model.geom_size[hand_id],
+        [
+            0.025 + CUBE_CONTACT_SKIN,
+            0.025 + CUBE_CONTACT_SKIN,
+            0.025 + CUBE_CONTACT_SKIN / 2,
+        ],
+    )
+    assert model.geom_pos[hand_id, 2] == pytest.approx(CUBE_CONTACT_SKIN / 2)
     assert model.geom_contype[visual_id] == 0
     assert model.geom_contype[support_id] == 1
-    assert model.geom_contype[margin_id] == 2
+    assert model.geom_contype[hand_id] == 2
+    assert model.geom_conaffinity[hand_id] == 2
+    assert model.ngeom == 3

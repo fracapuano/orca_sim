@@ -9,7 +9,10 @@ from pathlib import Path
 
 import numpy as np
 
-from orca_sim.genesis_env import BimanualOrcaPandaCubeGenesisEnv
+from orca_sim.genesis_env import (
+    CUBE_POSITION,
+    BimanualOrcaPandaCubeGenesisEnv,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,6 +38,14 @@ def parse_args() -> argparse.Namespace:
         help="Optional continuous MP4 rollout (requires --render-mode rgb_array).",
     )
     parser.add_argument("--fps", type=int, default=30, help="Recorded video frame rate.")
+    parser.add_argument(
+        "--cube-offset",
+        type=float,
+        nargs=2,
+        metavar=("DX", "DY"),
+        default=(0.0, 0.0),
+        help="Translate the cube and object-relative grasp in table x/y metres.",
+    )
     return parser.parse_args()
 
 
@@ -79,10 +90,13 @@ def main() -> int:
                 writer.append_data(np.asarray(frame, dtype=np.uint8))
 
     try:
+        cube_position = CUBE_POSITION.copy()
+        cube_position[:2] += args.cube_offset
         result = env.run_scripted_grasp(
             capture=capture,
             record=record,
             record_fps=args.fps,
+            cube_position=cube_position,
         )
     finally:
         if writer is not None:

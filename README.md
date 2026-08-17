@@ -113,11 +113,21 @@ python scripts/genesis_grasp_cube.py \
 ```
 
 The command exits non-zero unless the cube is finite, rises at least 12 cm,
-remains in contact with at least four hand collision geometries, has low final
+remains in an opposing pinch with at least two hand contacts, has low final
 linear speed, never enters the rendered cube, and every lift inverse-kinematics
 solve is within tolerance. Use `--render-mode human` for the interactive viewer
 or `--render-mode none` for the fastest validation. The first run is slower
 because Genesis imports the meshes and compiles its simulation kernels.
+
+The grasp is solved relative to the object rather than hard-coded to one world
+pose. For example, this translates both the cube and grasp target by 1 cm:
+
+```bash
+python scripts/genesis_grasp_cube.py \
+  --render-mode rgb_array \
+  --cube-offset 0.01 -0.01 \
+  --video renders/genesis_grasp_offset.mp4
+```
 
 The environment can also be used directly:
 
@@ -182,14 +192,20 @@ than drawing the generic collision surface. Its frame is visual-only so it
 cannot introduce irrelevant robot–furniture contacts; the cube-contact surface
 remains at the same calibrated height as the validated grasp.
 
-The cube has separate, coincident visual and support geometry plus a 10 mm
-non-rendered contact margin around only its exposed sides and top. Collision
-groups make the exact 5 cm body support the cube on the workbench while the ORCA
-fingers interact only with that conservative margin; the margin cannot make the
-cube float on the table. The closure controller freezes each digit chain at its
-first contact, caps hand effort at 0.5 N·m, and validates both raw solver overlap
-and overlap into the rendered cube. This removes visible hand/cube
-compenetration while retaining a frictional, continuously stepped grasp.
+The cube has coincident 5 cm visual and support geometry plus a 0.5 mm numerical
+contact skin for the ORCA links. This replaces the former 10 mm proxy. The skin's
+bottom is aligned exactly with the rendered cube, so it cannot make the object
+float on the workbench. The contact solver is configured to keep all raw overlap
+inside that submillimetre skin, and validation separately requires zero overlap
+into the rendered cube.
+
+The closure uses the hand's physically opposing thumb configuration, stops when
+the thumb and a finger form a real pinch, and adds only a bounded preload under
+the hand's 0.5 N·m effort limit. It retains that contact target throughout the
+lift; it never replaces it with a fully closed target. Collision meshes use a
+256-face decimation target where Genesis can simplify them safely, while the
+detailed MJCF visual meshes remain untouched. This reduces runtime collision
+work without changing the rendered hand.
 
 The validated rigid-contact configuration uses a 2.5 ms control step with five
 physics substeps, 150 constraint iterations, five no-slip iterations, box-box

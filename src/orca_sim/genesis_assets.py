@@ -120,15 +120,17 @@ def prepare_bimanual_orcapanda_mjcf(
             if is_hand:
                 geom.attrib.pop("mass", None)
                 geom.set("density", density)
-                # Bit 2: conservative manipulation-object margins. Bit 4:
-                # robot/table and robot self-collision. Deliberately omit bit 1
-                # so fingers cannot enter the cube's exact rendered volume.
+                # Bit 2: manipulation-object contact skins. Bit 4: robot/table
+                # and robot self-collision. The skin is only 0.5 mm and exists
+                # to absorb the solver's finite contact tolerance.
                 geom.set("contype", "6")
                 geom.set("conaffinity", "6")
+                geom.set("solref", "0.001 1")
+                geom.set("solimp", "0.99 0.999 0.001")
                 collision_geoms += 1
             else:
                 # Bit 1: exact scene/object collision. Bit 4: robot/table and
-                # robot self-collision. Panda links do not touch hand margins.
+                # robot self-collision. Panda links do not touch contact skins.
                 geom.set("contype", "5")
                 geom.set("conaffinity", "5")
 
@@ -152,7 +154,7 @@ def build_genesis_bimanual_orcapanda_mjcf(
     source = resolve_bimanual_orcapanda_mjcf()
     stat = source.stat()
     fingerprint = hashlib.sha256(
-        f"{source}:{stat.st_mtime_ns}:{stat.st_size}:{hand_density:g}:v6".encode()
+        f"{source}:{stat.st_mtime_ns}:{stat.st_size}:{hand_density:g}:v11".encode()
     ).hexdigest()[:16]
     root = (
         Path(cache_dir).expanduser().resolve()

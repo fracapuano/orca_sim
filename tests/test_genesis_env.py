@@ -7,6 +7,7 @@ pytest.importorskip("genesis")
 pytest.importorskip("orca_arm")
 
 from orca_sim.genesis_env import (
+    CUBE_CONTACT_SKIN,
     LEFT_ARM_DOFS,
     READY_LEFT_ARM_QPOS,
     READY_QPOS,
@@ -48,9 +49,9 @@ def test_scripted_grasp_lifts_cube_stably() -> None:
         assert result.success, result
         assert result.finite
         assert result.lift_height_m >= 0.12
-        assert result.final_hand_cube_contacts >= 4
+        assert result.final_hand_cube_contacts >= 2
         assert result.final_linear_speed_m_s < 0.05
-        assert result.max_collision_penetration_m <= 0.01
+        assert result.max_collision_penetration_m <= CUBE_CONTACT_SKIN
         assert result.max_visual_penetration_m <= 1e-4
         assert np.all(np.isfinite(result.final_cube_position))
     finally:

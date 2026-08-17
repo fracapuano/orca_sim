@@ -13,7 +13,7 @@
     <body name="workbench" pos="0.42 0 0">
       <!--
         Bit 1 supports exact objects and Panda links. Bit 4 supports the hand,
-        while intentionally excluding the cube's bit-2 hand-contact margin.
+        while intentionally excluding the cube's bit-2 hand contact skin.
       -->
       <geom
         name="work_surface_visual"
@@ -30,6 +30,8 @@
         friction="1.5 0.005 0.0001"
         contype="5"
         conaffinity="5"
+        solref="0.001 1"
+        solimp="0.99 0.999 0.001"
         rgba="0 0 0 0"
       />
       <!-- Grounded visual frame beneath the manipulation surface. -->
