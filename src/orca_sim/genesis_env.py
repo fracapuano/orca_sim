@@ -31,10 +31,50 @@ TABLE_POSITION = np.array([0.42, 0.0, 0.275], dtype=np.float64)
 TABLE_TOP_Z = float(TABLE_POSITION[2] + TABLE_SIZE[2] / 2)
 CUBE_SIZE = 0.05
 CUBE_POSITION = np.array([0.50, -0.27, TABLE_TOP_Z + CUBE_SIZE / 2], dtype=np.float64)
+GRASP_WRIST_XY = np.array([0.36, -0.03], dtype=np.float64)
+APPROACH_WRIST_POSITION = np.array([0.43, -0.11, 0.60], dtype=np.float64)
 
 HOME_ARM_QPOS = np.array([0.0, -0.6, 0.0, -2.1, 0.0, 1.55, 0.8], dtype=np.float64)
 HOME_QPOS = np.concatenate(
     [HOME_ARM_QPOS, np.zeros(N_HAND_DOFS), HOME_ARM_QPOS, np.zeros(N_HAND_DOFS)]
+)
+
+# Symmetric elbow-up posture with both wrists above and facing into the shared
+# workspace.  It was selected from IK solutions for wrist targets at
+# (0.45, +/-0.30, 0.55) by preferring joint-limit margin and a well-conditioned
+# translational Jacobian.  The right-arm relation is the Panda mirror mapping
+# for the two opposing base mounts.
+READY_LEFT_ARM_QPOS = np.array(
+    [
+        -1.02438856,
+        -0.01926053,
+        0.30822373,
+        -2.03127841,
+        1.33388590,
+        1.01791308,
+        0.35839412,
+    ],
+    dtype=np.float64,
+)
+READY_RIGHT_ARM_QPOS = np.array(
+    [
+        1.02438856,
+        -0.01926053,
+        -0.30822373,
+        -2.03127841,
+        -1.33388590,
+        1.01791308,
+        1.24160588,
+    ],
+    dtype=np.float64,
+)
+READY_QPOS = np.concatenate(
+    [
+        READY_LEFT_ARM_QPOS,
+        np.zeros(N_HAND_DOFS),
+        READY_RIGHT_ARM_QPOS,
+        np.zeros(N_HAND_DOFS),
+    ]
 )
 
 RIGHT_HAND_CLOSED = np.zeros(N_HAND_DOFS, dtype=np.float64)
@@ -153,9 +193,9 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
                 box_box_detection=True,
             ),
             viewer_options=gs.options.ViewerOptions(
-                camera_pos=(1.35, -1.20, 0.88),
-                camera_lookat=(0.38, -0.12, 0.38),
-                camera_fov=38,
+                camera_pos=(1.65, -0.05, 1.05),
+                camera_lookat=(0.35, 0.0, 0.40),
+                camera_fov=42,
                 res=(960, 720),
             ),
             show_viewer=render_mode == "human",
@@ -201,9 +241,9 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         if render_mode == "rgb_array":
             self.camera = self.scene.add_camera(
                 res=(960, 720),
-                pos=(1.35, -1.20, 0.88),
-                lookat=(0.38, -0.12, 0.38),
-                fov=38,
+                pos=(1.65, -0.05, 1.05),
+                lookat=(0.35, 0.0, 0.40),
+                fov=42,
             )
 
         self.scene.build()
@@ -226,15 +266,27 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
             [np.sqrt(0.5), -np.sqrt(0.5), 0.0, 0.0], dtype=np.float64
         )
         self._grasp_quat = _quat_multiply(rotate_world_x_minus_90, wrist_home_quat)
-        self._grasp_open_qpos, error = self._solve_right_arm_ik(
-            z=0.39,
-            init_qpos=HOME_QPOS,
+        self._approach_qpos, approach_error = self._solve_right_arm_ik(
+            position=APPROACH_WRIST_POSITION,
+            init_qpos=READY_QPOS,
         )
-        if float(np.linalg.norm(error)) > 5e-3:
+        self._grasp_open_qpos, grasp_error = self._solve_right_arm_ik(
+            position=np.array([*GRASP_WRIST_XY, 0.39]),
+            init_qpos=self._approach_qpos,
+        )
+        max_error = max(
+            float(np.linalg.norm(approach_error)),
+            float(np.linalg.norm(grasp_error)),
+        )
+        if max_error > 5e-3:
             raise RuntimeError(
-                f"Could not solve the nominal pre-grasp IK pose: {error}"
+                f"Could not solve the nominal approach IK poses: error={max_error}"
             )
-        self._command_qpos = self._grasp_open_qpos.copy()
+        # IK only commands the right arm.  Keep the other arm in the ready pose
+        # so it remains clear of the task throughout the demonstration.
+        self._approach_qpos[LEFT_ARM_DOFS] = READY_LEFT_ARM_QPOS
+        self._grasp_open_qpos[LEFT_ARM_DOFS] = READY_LEFT_ARM_QPOS
+        self._command_qpos = READY_QPOS.copy()
 
         obs = self._get_obs()
         self.observation_space = spaces.Box(
@@ -291,12 +343,12 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
     def _solve_right_arm_ik(
         self,
         *,
-        z: float,
+        position: np.ndarray,
         init_qpos: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
         qpos, error = self.robot.inverse_kinematics(
             link=self.right_wrist,
-            pos=np.array([0.43, -0.11, z], dtype=np.float64),
+            pos=np.asarray(position, dtype=np.float64),
             quat=self._grasp_quat,
             init_qpos=init_qpos,
             dofs_idx_local=RIGHT_ARM_DOFS,
@@ -352,7 +404,7 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
             options.get("cube_position", CUBE_POSITION), dtype=np.float64
         )
         robot_qpos = np.asarray(
-            options.get("robot_qpos", self._grasp_open_qpos), dtype=np.float64
+            options.get("robot_qpos", READY_QPOS), dtype=np.float64
         )
         settle_steps = int(options.get("settle_steps", 0))
         if cube_position.shape != (3,):
@@ -419,10 +471,21 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         *,
         capture: Callable[[str, np.ndarray], None] | None = None,
     ) -> ScriptedGraspResult:
-        """Run and measure the deterministic side grasp used as a physics check."""
+        """Approach from the ready pose, then run the validated grasp and lift."""
         self.reset(options={"settle_steps": 200})
         speed_samples: list[float] = []
         initial_position = self._cube_position()
+        if capture is not None:
+            frame = self.render()
+            if frame is not None:
+                capture("ready", frame)
+
+        # Move above the workspace first.  A direct joint-space interpolation
+        # from ready to the low grasp pose sweeps the elbow through the table.
+        self._drive_to(self._approach_qpos, 1_000, speed_samples)
+        self._hold(200, speed_samples)
+        self._drive_to(self._grasp_open_qpos, 900, speed_samples)
+        self._hold(200, speed_samples)
         if capture is not None:
             frame = self.render()
             if frame is not None:
@@ -439,9 +502,10 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
                 capture("grasp", frame)
 
         max_ik_error = 0.0
-        for z in (0.42, 0.45, 0.48, 0.51, 0.54):
+        for z in (0.42, 0.45, 0.48, 0.51, 0.54, 0.57):
             solution, error = self._solve_right_arm_ik(
-                z=z, init_qpos=self._command_qpos
+                position=np.array([*GRASP_WRIST_XY, z]),
+                init_qpos=self._command_qpos,
             )
             max_ik_error = max(max_ik_error, float(np.linalg.norm(error)))
             target = self._command_qpos.copy()

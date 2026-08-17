@@ -88,7 +88,8 @@ source .venv/bin/activate
 uv pip install -e '.[genesis,dev]'
 ```
 
-Run the end-to-end grasp validation headlessly and save an image at each phase:
+Run the end-to-end grasp validation headlessly and save an image at each phase
+(ready, open, grasp, and lift):
 
 ```bash
 python scripts/genesis_grasp_cube.py \
@@ -118,7 +119,11 @@ env.close()
 
 Actions are absolute joint-position targets in asset order. Observations are the
 48 robot positions, 48 robot velocities, 7-value cube pose, and 6-value cube
-velocity (109 values total).
+velocity (109 values total). A normal reset places both arms in a mirrored,
+elbow-up ready configuration with open hands facing the shared workspace. This
+keeps the wrists away from singular and joint-limit regions and gives IK and
+random policies a well-defined starting posture. The scripted validation first
+approaches its calibrated right-hand pre-grasp from this same reset pose.
 
 ### Visualize a random policy
 

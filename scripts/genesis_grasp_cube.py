@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
         "--render-mode",
         choices=("none", "human", "rgb_array"),
         default="rgb_array",
-        help="Use rgb_array to save open/grasp/lift validation frames.",
+        help="Use rgb_array to save ready/open/grasp/lift validation frames.",
     )
     parser.add_argument(
         "--output-dir",

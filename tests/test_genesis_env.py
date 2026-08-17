@@ -6,7 +6,32 @@ import pytest
 pytest.importorskip("genesis")
 pytest.importorskip("orca_arm")
 
-from orca_sim.genesis_env import BimanualOrcaPandaCubeGenesisEnv
+from orca_sim.genesis_env import (
+    LEFT_ARM_DOFS,
+    READY_LEFT_ARM_QPOS,
+    READY_QPOS,
+    READY_RIGHT_ARM_QPOS,
+    RIGHT_ARM_DOFS,
+    BimanualOrcaPandaCubeGenesisEnv,
+)
+
+
+def test_ready_pose_is_a_mirrored_bimanual_configuration() -> None:
+    assert READY_QPOS.shape == (48,)
+    np.testing.assert_allclose(READY_QPOS[LEFT_ARM_DOFS], READY_LEFT_ARM_QPOS)
+    np.testing.assert_allclose(READY_QPOS[RIGHT_ARM_DOFS], READY_RIGHT_ARM_QPOS)
+    np.testing.assert_allclose(
+        READY_RIGHT_ARM_QPOS,
+        [
+            -READY_LEFT_ARM_QPOS[0],
+            READY_LEFT_ARM_QPOS[1],
+            -READY_LEFT_ARM_QPOS[2],
+            READY_LEFT_ARM_QPOS[3],
+            -READY_LEFT_ARM_QPOS[4],
+            READY_LEFT_ARM_QPOS[5],
+            1.6 - READY_LEFT_ARM_QPOS[6],
+        ],
+    )
 
 
 @pytest.mark.slow
@@ -17,6 +42,7 @@ def test_scripted_grasp_lifts_cube_stably() -> None:
         assert obs.shape == (109,)
         assert env.action_space.shape == (48,)
         assert info["finite"]
+        np.testing.assert_allclose(obs[:48], READY_QPOS, atol=1e-7)
 
         result = env.run_scripted_grasp()
         assert result.success, result
