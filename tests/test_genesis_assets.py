@@ -7,7 +7,10 @@ import mujoco
 import numpy as np
 import pytest
 
-from orca_sim.genesis_assets import prepare_bimanual_orcapanda_mjcf
+from orca_sim.genesis_assets import (
+    prepare_bimanual_orcapanda_mjcf,
+    resolve_panda_nohand_mjcf,
+)
 from orca_sim.genesis_env import (
     CUBE_CONTACT_SKIN,
     CUBE_MJCF_PATH,
@@ -18,53 +21,25 @@ from orca_sim.genesis_env import (
 )
 
 
-def test_prepare_mjcf_preserves_panda_and_recomputes_hand_inertias(
+def test_prepare_mjcf_composes_native_v2_hands_with_panda(
     tmp_path: Path,
 ) -> None:
-    mesh_dir = tmp_path / "meshes"
-    mesh_dir.mkdir()
-    (mesh_dir / "part.stl").write_bytes(b"mesh placeholder")
-    source = tmp_path / "source.xml"
-    source.write_text(
-        """\
-<mujoco model="test">
-  <compiler meshdir="meshes"/>
-  <asset><mesh name="part" file="part.stl"/></asset>
-  <worldbody>
-    <body name="left_panda_link0" pos="0 0.45 0"/>
-    <body name="right_panda_link0" pos="0 -0.45 0"/>
-    <body name="panda_link">
-      <inertial mass="2" pos="0 0 0" diaginertia="1 1 1"/>
-      <geom mesh="part" class="panda/visual"/>
-      <geom mesh="part" class="panda/collision"/>
-    </body>
-    <body name="orcahand_right_palm">
-      <inertial mass="8" pos="0 0 0" diaginertia="100 100 100"/>
-      <geom mesh="part" density="0" contype="0" conaffinity="0"/>
-      <geom mesh="part" mass="8"/>
-    </body>
-  </worldbody>
-  <contact><exclude body1="left_panda_link0" body2="panda_link"/></contact>
-</mujoco>
-""",
-        encoding="utf-8",
-    )
-
     output = prepare_bimanual_orcapanda_mjcf(
-        source,
+        resolve_panda_nohand_mjcf(),
         tmp_path / "generated" / "genesis.xml",
         hand_density=725.0,
     )
     root = ET.parse(output).getroot()
 
-    mesh = root.find(".//asset/mesh")
-    assert mesh is not None
-    assert Path(mesh.get("file", "")).is_absolute()
-    assert root.find(".//body[@name='panda_link']/inertial") is not None
-    panda_visual, panda_collision = root.findall(
-        ".//body[@name='panda_link']/geom"
+    assert all(
+        Path(mesh.get("file", "")).is_absolute()
+        for mesh in root.findall(".//asset/mesh")
     )
-    assert panda_visual.get("contype") is None
+    assert root.find(".//body[@name='left_panda_link1']/inertial") is not None
+    panda_collision = root.find(
+        ".//body[@name='left_panda_link1']/geom[@class='panda/collision']"
+    )
+    assert panda_collision is not None
     assert panda_collision.get("contype") == "5"
     assert panda_collision.get("conaffinity") == "5"
 
@@ -74,23 +49,46 @@ def test_prepare_mjcf_preserves_panda_and_recomputes_hand_inertias(
     assert right_root is not None and right_root.get("pos") == "0 0.45 0"
     assert root.find("contact") is None
 
-    hand = root.find(".//body[@name='orcahand_right_palm']")
+    assert root.find(".//body[@name='orcahand_right_palm']") is None
+    hand = root.find(".//body[@name='right_I-FingerTipAssembly_ec49c16c']")
     assert hand is not None
     assert hand.find("inertial") is None
-    visual, collision = hand.findall("geom")
-    assert visual.get("density") == "0"
+    skin = hand.find("geom[@mesh='right_I-FingerTipAssembly_I-DP-Skin']")
+    assert skin is not None
+    assert skin.get("density") == "0"
+    assert skin.get("contype") == "0"
+    collision = next(
+        (
+            geom
+            for geom in hand.findall("geom")
+            if geom.get("mesh") == skin.get("mesh") and geom.get("contype") == "6"
+        ),
+        None,
+    )
+    assert collision is not None
+    assert collision.get("mesh") == skin.get("mesh")
     assert collision.get("density") == "725"
-    assert "mass" not in collision.attrib
     assert collision.get("contype") == "6"
     assert collision.get("conaffinity") == "6"
     assert collision.get("solref") == "0.001 1"
     assert collision.get("solimp") == "0.99 0.999 0.001"
 
+    model = mujoco.MjModel.from_xml_path(str(output))
+    assert model.nq == 48
+    assert model.nu == 48
+    joint_names = {
+        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, joint_id)
+        for joint_id in range(model.njnt)
+    }
+    assert "left_wrist" in joint_names
+    assert "right_t-cmc" in joint_names
+    assert not any(name.startswith("orcahand_") for name in joint_names)
 
-def test_prepare_mjcf_rejects_non_orca_asset(tmp_path: Path) -> None:
+
+def test_prepare_mjcf_rejects_non_panda_asset(tmp_path: Path) -> None:
     source = tmp_path / "source.xml"
     source.write_text("<mujoco><worldbody/></mujoco>", encoding="utf-8")
-    with pytest.raises(ValueError, match="expected ORCA-hand"):
+    with pytest.raises(ValueError, match="no-hand Panda MJCF"):
         prepare_bimanual_orcapanda_mjcf(source, tmp_path / "output.xml")
 
 
@@ -130,9 +128,7 @@ def test_cube_asset_uses_exact_support_and_submillimetre_hand_skin() -> None:
     body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "grasp_cube")
     np.testing.assert_allclose(model.body_pos[body_id], CUBE_POSITION)
 
-    visual_id = mujoco.mj_name2id(
-        model, mujoco.mjtObj.mjOBJ_GEOM, "grasp_cube_visual"
-    )
+    visual_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "grasp_cube_visual")
     support_id = mujoco.mj_name2id(
         model, mujoco.mjtObj.mjOBJ_GEOM, "grasp_cube_support_collision"
     )

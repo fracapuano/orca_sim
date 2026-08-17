@@ -72,9 +72,11 @@ See our [`random_policy.py`](random_policy.py) example to see how to instantiate
 
 ## Genesis bimanual ORCA-Panda cube grasp
 
-The Genesis environment uses the two 7-DOF Franka arms and two 17-DOF ORCA
-hands from [`fracapuano/orca_arm`](https://github.com/fracapuano/orca_arm). It
-adds a grounded workbench asset and a dynamic 5 cm, 80 g cube, exposes all 48
+The Genesis environment composes two 7-DOF Franka arms from the no-hand Panda
+MJCF bundled by `orca_arm` with the native v2 left/right ORCA-hand MJCFs in
+[`src/orca_sim/models/v2/mjcf`](src/orca_sim/models/v2/mjcf). It does not load
+the URDF-derived hand bodies from `bimanual_orcapanda.xml`. The environment adds
+a grounded workbench asset and a dynamic 5 cm, 80 g cube, exposes all 48
 actuated joints through the Gymnasium API, and includes a deterministic
 side-grasp/lift validation. The implementation follows the [Genesis user
 guide](https://genesis-world.readthedocs.io/en/latest/user_guide/overview/index.html)
@@ -178,12 +180,13 @@ high-gain position controller.
 
 ### Contact and inertial treatment
 
-The Panda inertias in the upstream MJCF are preserved. The ORCA hand's authored
-CAD inertias do not match its metre-scale collision geometry, which causes
-unstable contact in Genesis. At load time, `orca_sim` generates a cached MJCF
-that removes only the 38 hand-link inertials and asks Genesis to integrate them
-from the collision meshes at 650 kg/m³. It also resolves every mesh to an
-absolute path; the upstream asset itself is never modified.
+The Panda inertias in the Menagerie MJCF are preserved. The native v2 hand MJCF
+does not prescribe link inertias, so Genesis integrates them from the native
+collision meshes at 650 kg/m³. The white skin meshes remain the rendered
+geometry and receive transparent, coincident collision copies so a cube cannot
+pass through the visible fingertip before reaching an internal bone mesh. At
+load time, `orca_sim` composes this model in a cache and resolves every mesh to
+an absolute path; none of the released source assets are modified.
 
 The workbench is one packaged MJCF asset with a 0.75 × 1.15 m wooden top, four
 grounded steel legs, aprons, lower rails, and feet. The top has coincident

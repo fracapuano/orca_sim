@@ -14,7 +14,7 @@ from gymnasium import spaces
 
 from orca_sim.genesis_assets import build_genesis_bimanual_orcapanda_mjcf
 
-RIGHT_WRIST_LINK = "orcahand_right_ForeArmStructure-Model_e18f2368"
+RIGHT_WRIST_LINK = "right_ForeArmStructure-Model_e18f2368"
 WORKBENCH_MJCF_PATH = (
     Path(__file__).resolve().parent / "assets" / "genesis" / "workbench.xml"
 )
@@ -35,8 +35,9 @@ TABLE_TOP_Z = float(TABLE_POSITION[2] + TABLE_SIZE[2] / 2)
 CUBE_SIZE = 0.05
 CUBE_CONTACT_SKIN = 0.0005
 CUBE_POSITION = np.array([0.50, 0.15, TABLE_TOP_Z + CUBE_SIZE / 2], dtype=np.float64)
-GRASP_WRIST_XY = np.array([0.42, 0.28], dtype=np.float64)
-APPROACH_WRIST_POSITION = np.array([0.43, 0.36, 0.70], dtype=np.float64)
+GRASP_WRIST_XY = np.array([0.43, 0.319], dtype=np.float64)
+GRASP_WRIST_Z = 0.339
+APPROACH_WRIST_POSITION = np.array([0.43, 0.319, 0.70], dtype=np.float64)
 
 CAMERA_RESOLUTION = (1280, 720)
 CAMERA_POSITION = (1.80, -0.72, 1.28)
@@ -87,11 +88,13 @@ READY_QPOS = np.concatenate(
 )
 
 RIGHT_HAND_CLOSED = np.zeros(N_HAND_DOFS, dtype=np.float64)
-RIGHT_HAND_CLOSED[[2, 3, 5, 6, 8, 9, 11, 12]] = 1.45
+# Native v2 hand order: wrist, thumb (4), index (3), middle (3), ring (3),
+# pinky (3). Close MCP/PIP for the four fingers while retaining abduction.
+RIGHT_HAND_CLOSED[[6, 7, 9, 10, 12, 13, 15, 16]] = 1.45
 # Positive thumb opposition brings the distal pad across from the index finger.
 # The previous negative value placed both contact surfaces on the same side of
 # the cube, so closing the hand could only push the object away.
-RIGHT_HAND_CLOSED[13:17] = [0.55, 0.0, 0.3, 0.8]
+RIGHT_HAND_CLOSED[1:5] = [0.55, 0.0, 0.3, 0.8]
 
 
 def _as_numpy(value: Any) -> np.ndarray:
@@ -321,7 +324,7 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
             init_qpos=READY_QPOS,
         )
         self._grasp_open_qpos, grasp_error = self._solve_right_arm_ik(
-            position=np.array([*GRASP_WRIST_XY, 0.39]),
+            position=np.array([*GRASP_WRIST_XY, GRASP_WRIST_Z]),
             init_qpos=self._approach_qpos,
         )
         max_error = max(
@@ -454,13 +457,9 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
     def _right_digit_from_link_name(link_name: str) -> str | None:
         if "P-Finger" in link_name or "_P-" in link_name:
             return "pinky"
-        if any(
-            token in link_name for token in ("424a8e75", "8660a1eb", "6ec59111")
-        ):
+        if any(token in link_name for token in ("424a8e75", "8660a1eb", "6ec59111")):
             return "ring"
-        if any(
-            token in link_name for token in ("34afb748", "08efa608", "e04a96f2")
-        ):
+        if any(token in link_name for token in ("34afb748", "08efa608", "e04a96f2")):
             return "middle"
         if "_I-" in link_name:
             return "index"
@@ -505,9 +504,7 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         cube_position = np.asarray(
             options.get("cube_position", CUBE_POSITION), dtype=np.float64
         )
-        robot_qpos = np.asarray(
-            options.get("robot_qpos", READY_QPOS), dtype=np.float64
-        )
+        robot_qpos = np.asarray(options.get("robot_qpos", READY_QPOS), dtype=np.float64)
         settle_steps = int(options.get("settle_steps", 0))
         if cube_position.shape != (3,):
             raise ValueError(
@@ -624,11 +621,14 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
             ):
                 name_a = links[int(link_a)].name
                 name_b = links[int(link_b)].name
-                robot_link_name = name_a if name_a.startswith("orca") else name_b
-                contacted_links.add(robot_link_name)
-                digit = self._right_digit_from_link_name(robot_link_name)
-                if digit is not None:
-                    active_digits.add(digit)
+                digit_a = self._right_digit_from_link_name(name_a)
+                digit_b = self._right_digit_from_link_name(name_b)
+                if digit_a is not None:
+                    contacted_links.add(name_a)
+                    active_digits.add(digit_a)
+                elif digit_b is not None:
+                    contacted_links.add(name_b)
+                    active_digits.add(digit_b)
 
             has_opposing_contact = "thumb" in active_digits and bool(
                 active_digits - {"thumb"}
@@ -682,13 +682,16 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
                 init_qpos=READY_QPOS,
             )
             grasp_open_qpos, grasp_error = self._solve_right_arm_ik(
-                position=np.array([*GRASP_WRIST_XY, 0.39]) + cube_delta,
+                position=np.array([*GRASP_WRIST_XY, GRASP_WRIST_Z]) + cube_delta,
                 init_qpos=approach_qpos,
             )
-            if max(
-                float(np.linalg.norm(approach_error)),
-                float(np.linalg.norm(grasp_error)),
-            ) > 5e-3:
+            if (
+                max(
+                    float(np.linalg.norm(approach_error)),
+                    float(np.linalg.norm(grasp_error)),
+                )
+                > 5e-3
+            ):
                 raise RuntimeError("Could not solve the requested cube grasp pose")
             approach_qpos[LEFT_ARM_DOFS] = READY_LEFT_ARM_QPOS
             grasp_open_qpos[LEFT_ARM_DOFS] = READY_LEFT_ARM_QPOS
