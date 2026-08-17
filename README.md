@@ -3,7 +3,8 @@
 </p>
 
 
-`orca_sim` provides simulation environments for the ORCA hand.
+`orca_sim` provides simulation environments for the ORCA hand, including a
+bimanual ORCA-Panda manipulation scene in Genesis.
 You can start building your ORCA hand today at [orcahand.com](https://www.orcahand.com/).
 
 ## Install
@@ -69,6 +70,71 @@ env = OrcaHandCombinedExtended(version="v1")  # loads the v1 hand
 
 See our [`random_policy.py`](random_policy.py) example to see how to instantiate and interface an ORCA hand.
 
+## Genesis bimanual ORCA-Panda cube grasp
+
+The Genesis environment uses the two 7-DOF Franka arms and two 17-DOF ORCA
+hands from [`fracapuano/orca_arm`](https://github.com/fracapuano/orca_arm). It
+adds a fixed table and a dynamic 5 cm, 80 g cube, exposes all 48 actuated joints
+through the Gymnasium API, and includes a deterministic side-grasp/lift
+validation. The implementation follows the [Genesis user
+guide](https://genesis-world.readthedocs.io/en/latest/user_guide/overview/index.html)
+and currently pins Genesis 1.3.3 for repeatability.
+
+Use Python 3.11 and install the optional simulator dependencies:
+
+```bash
+uv venv --python 3.11
+source .venv/bin/activate
+uv pip install -e '.[genesis,dev]'
+```
+
+Run the end-to-end grasp validation headlessly and save an image at each phase:
+
+```bash
+python scripts/genesis_grasp_cube.py \
+  --render-mode rgb_array \
+  --output-dir renders/genesis
+```
+
+The command exits non-zero unless the cube is finite, rises at least 12 cm,
+remains in contact with at least four hand collision geometries, has low final
+linear speed, and every lift inverse-kinematics solve is within tolerance. Use
+`--render-mode human` for the interactive viewer or `--render-mode none` for the
+fastest validation. The first run is slower because Genesis imports the meshes
+and compiles its simulation kernels.
+
+The environment can also be used directly:
+
+```python
+import gymnasium as gym
+from orca_sim import register_envs
+
+register_envs()
+env = gym.make("BimanualOrcaPandaCubeGenesis-v0")
+obs, info = env.reset()
+obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
+env.close()
+```
+
+Actions are absolute joint-position targets in asset order. Observations are the
+48 robot positions, 48 robot velocities, 7-value cube pose, and 6-value cube
+velocity (109 values total).
+
+### Contact and inertial treatment
+
+The Panda inertias in the upstream MJCF are preserved. The ORCA hand's authored
+CAD inertias do not match its metre-scale collision geometry, which causes
+unstable contact in Genesis. At load time, `orca_sim` generates a cached MJCF
+that removes only the 38 hand-link inertials and asks Genesis to integrate them
+from the collision meshes at 650 kg/m³. It also resolves every mesh to an
+absolute path; the upstream asset itself is never modified.
+
+The validated rigid-contact configuration uses a 2.5 ms control step with five
+physics substeps, 150 constraint iterations, five no-slip iterations, box-box
+contact detection, and torsional friction. The scripted trajectory closes the
+right hand gradually and lifts through five Cartesian wrist waypoints rather
+than teleporting bodies.
+
 ## Sample task: in-hand cube orientation
 
 `orca_sim` now also ships a task-level example that augments the right hand with a free-floating cube whose one target face is colored red:
@@ -112,4 +178,3 @@ The implementation is intentionally split so it doubles as a porting template:
 - The task scene lives in [`src/orca_sim/scenes/v2/scene_right_cube_orientation.xml`](src/orca_sim/scenes/v2/scene_right_cube_orientation.xml) and composes the existing hand MJCF with a single task cube.
 - The nominal palm-up hand pose and in-palm cube spawn are now authored into the task-specific scene/model files, so opening the XML directly in MuJoCo shows the intended setup.
 - The task logic lives in [`src/orca_sim/task_envs.py`](src/orca_sim/task_envs.py), including reset-time cube randomization and optional hand-pose overrides for custom MJCF layouts.
-

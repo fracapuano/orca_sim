@@ -10,6 +10,7 @@ from orca_sim.envs import (
     OrcaHandRight,
     OrcaHandRightExtended,
 )
+from orca_sim.genesis_env import BimanualOrcaPandaCubeGenesisEnv, ScriptedGraspResult
 from orca_sim.registry import register_envs
 from orca_sim.task_envs import OrcaHandRightCubeOrientation
 
@@ -21,6 +22,8 @@ __all__ = [
     "OrcaHandRight",
     "OrcaHandRightCubeOrientation",
     "OrcaHandRightExtended",
+    "BimanualOrcaPandaCubeGenesisEnv",
+    "ScriptedGraspResult",
     "latest_version",
     "list_versions",
     "register_envs",

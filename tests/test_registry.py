@@ -13,6 +13,8 @@ def test_register_envs_is_idempotent_and_envs_can_be_made() -> None:
     register_envs()
     register_envs()
 
+    assert "BimanualOrcaPandaCubeGenesis-v0" in gym.registry
+
     for env_id, obs_shape, action_shape, expect_empty_info in [
         ("OrcaHandLeft-v1", (34,), (17,), True),
         ("OrcaHandLeft-v2", (34,), (17,), True),

@@ -5,6 +5,13 @@ from orca_sim.versions import list_versions, resolve_scene_path
 
 def register_envs() -> None:
     registry = gym.registry
+    genesis_env_id = "BimanualOrcaPandaCubeGenesis-v0"
+    if genesis_env_id not in registry:
+        gym.register(
+            id=genesis_env_id,
+            entry_point="orca_sim.genesis_env:BimanualOrcaPandaCubeGenesisEnv",
+        )
+
     specs = {
         "OrcaHandLeft": ("orca_sim.envs:OrcaHandLeft", "scene_left.xml"),
         "OrcaHandLeftExtended": (
