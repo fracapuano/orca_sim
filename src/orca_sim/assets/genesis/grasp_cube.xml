@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="orca grasp cube">
+  <worldbody>
+    <body name="grasp_cube" pos="0.5 0.15 0.325">
+      <freejoint name="grasp_cube_free"/>
+      <inertial pos="0 0 0" mass="0.08" diaginertia="0.0000333333 0.0000333333 0.0000333333"/>
+      <geom
+        name="grasp_cube_visual"
+        type="box"
+        size="0.025 0.025 0.025"
+        contype="0"
+        conaffinity="0"
+        density="0"
+        rgba="0.82 0.04 0.03 1"
+      />
+      <geom
+        name="grasp_cube_support_collision"
+        type="box"
+        size="0.025 0.025 0.025"
+        contype="1"
+        conaffinity="1"
+        density="0"
+        friction="2.5 0.008 0.0001"
+        rgba="0 0 0 0"
+      />
+      <!--
+        A conservative contact margin around only the exposed sides and top.
+        Its lower face is 10 mm above the visual cube's lower face, so it
+        cannot collide with the workbench or make the cube float.
+      -->
+      <geom
+        name="grasp_cube_hand_collision"
+        type="box"
+        pos="0 0 0.01"
+        size="0.035 0.035 0.025"
+        contype="2"
+        conaffinity="2"
+        density="0"
+        friction="2.5 0.008 0.0001"
+        rgba="0 0 0 0"
+      />
+    </body>
+  </worldbody>
+</mujoco>

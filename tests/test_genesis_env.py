@@ -50,6 +50,8 @@ def test_scripted_grasp_lifts_cube_stably() -> None:
         assert result.lift_height_m >= 0.12
         assert result.final_hand_cube_contacts >= 4
         assert result.final_linear_speed_m_s < 0.05
+        assert result.max_collision_penetration_m <= 0.01
+        assert result.max_visual_penetration_m <= 1e-4
         assert np.all(np.isfinite(result.final_cube_position))
     finally:
         env.close()

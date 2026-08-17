@@ -97,12 +97,22 @@ python scripts/genesis_grasp_cube.py \
   --output-dir renders/genesis
 ```
 
+Add `--video` to record the continuously stepped rollout rather than only the
+four checkpoints:
+
+```bash
+python scripts/genesis_grasp_cube.py \
+  --render-mode rgb_array \
+  --output-dir renders/genesis \
+  --video renders/genesis_grasp.mp4
+```
+
 The command exits non-zero unless the cube is finite, rises at least 12 cm,
 remains in contact with at least four hand collision geometries, has low final
-linear speed, and every lift inverse-kinematics solve is within tolerance. Use
-`--render-mode human` for the interactive viewer or `--render-mode none` for the
-fastest validation. The first run is slower because Genesis imports the meshes
-and compiles its simulation kernels.
+linear speed, never enters the rendered cube, and every lift inverse-kinematics
+solve is within tolerance. Use `--render-mode human` for the interactive viewer
+or `--render-mode none` for the fastest validation. The first run is slower
+because Genesis imports the meshes and compiles its simulation kernels.
 
 The environment can also be used directly:
 
@@ -124,6 +134,9 @@ elbow-up ready configuration with open hands facing the shared workspace. This
 keeps the wrists away from singular and joint-limit regions and gives IK and
 random policies a well-defined starting posture. The scripted validation first
 approaches its calibrated right-hand pre-grasp from this same reset pose.
+The cached Genesis conversion swaps the source arm mounts: the left robot
+occupies the negative-y mount and the right robot the positive-y mount, so both
+hands point inward without modifying the upstream asset.
 
 ### Visualize a random policy
 
@@ -157,11 +170,20 @@ that removes only the 38 hand-link inertials and asks Genesis to integrate them
 from the collision meshes at 650 kg/m³. It also resolves every mesh to an
 absolute path; the upstream asset itself is never modified.
 
-The workbench combines a collidable 0.75 × 1.15 m top with a packaged MJCF frame
-containing four grounded steel legs, aprons, lower rails, and feet. The frame is
+The workbench is one packaged MJCF asset with a collidable 0.75 × 1.15 m wooden
+top, four grounded steel legs, aprons, lower rails, and feet. Its frame is
 visual-only so it cannot introduce irrelevant robot–furniture contacts; the
 cube-contact surface remains at the same calibrated height as the validated
 grasp.
+
+The cube has separate, coincident visual and support geometry plus a 10 mm
+non-rendered contact margin around only its exposed sides and top. Collision
+groups make the exact 5 cm body support the cube on the workbench while the ORCA
+fingers interact only with that conservative margin; the margin cannot make the
+cube float on the table. The closure controller freezes each digit chain at its
+first contact, caps hand effort at 0.5 N·m, and validates both raw solver overlap
+and overlap into the rendered cube. This removes visible hand/cube
+compenetration while retaining a frictional, continuously stepped grasp.
 
 The validated rigid-contact configuration uses a 2.5 ms control step with five
 physics substeps, 150 constraint iterations, five no-slip iterations, box-box

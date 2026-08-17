@@ -9,6 +9,8 @@ from pathlib import Path
 
 DEFAULT_HAND_DENSITY = 650.0
 HAND_BODY_PREFIX = "orcahand_"
+LEFT_ARM_ROOT = "left_panda_link0"
+RIGHT_ARM_ROOT = "right_panda_link0"
 
 
 def resolve_bimanual_orcapanda_mjcf() -> Path:
@@ -32,6 +34,7 @@ def prepare_bimanual_orcapanda_mjcf(
     output_path: str | Path,
     *,
     hand_density: float = DEFAULT_HAND_DENSITY,
+    swap_arm_mounts: bool = True,
 ) -> Path:
     """Prepare the upstream MJCF for physically consistent Genesis import.
 
@@ -57,6 +60,25 @@ def prepare_bimanual_orcapanda_mjcf(
     if root.tag != "mujoco":
         raise ValueError(f"Expected a MuJoCo MJCF root, got {root.tag!r}")
 
+    if swap_arm_mounts:
+        left_root = root.find(f"./worldbody/body[@name='{LEFT_ARM_ROOT}']")
+        right_root = root.find(f"./worldbody/body[@name='{RIGHT_ARM_ROOT}']")
+        if (left_root is None) != (right_root is None):
+            raise ValueError("The MJCF contains only one expected Panda arm root")
+        if left_root is not None and right_root is not None:
+            left_position = left_root.get("pos", "0 0 0")
+            right_position = right_root.get("pos", "0 0 0")
+            left_root.set("pos", right_position)
+            right_root.set("pos", left_position)
+
+    # Genesis rewrites every MJCF collision bitmask when an explicit MuJoCo
+    # <exclude> is present.  The source only excludes each fixed base from its
+    # adjacent first link, which Genesis already handles with adjacent-pair
+    # filtering.  Removing it preserves the scene-wide contact groups below.
+    contact = root.find("contact")
+    if contact is not None:
+        root.remove(contact)
+
     compiler = root.find("compiler")
     mesh_dir = source.parent
     if compiler is not None and compiler.get("meshdir"):
@@ -78,24 +100,37 @@ def prepare_bimanual_orcapanda_mjcf(
     collision_geoms = 0
     density = f"{hand_density:g}"
     for body in root.findall(".//body"):
-        if not body.get("name", "").startswith(HAND_BODY_PREFIX):
-            continue
-        hand_bodies += 1
+        is_hand = body.get("name", "").startswith(HAND_BODY_PREFIX)
+        if is_hand:
+            hand_bodies += 1
 
         inertial = body.find("inertial")
-        if inertial is not None:
+        if is_hand and inertial is not None:
             body.remove(inertial)
             removed_inertials += 1
 
         for geom in body.findall("geom"):
-            is_visual = geom.get("density") == "0" or (
+            is_visual = geom.get("class", "").endswith("/visual") or geom.get(
+                "density"
+            ) == "0" or (
                 geom.get("contype") == "0" and geom.get("conaffinity") == "0"
             )
             if is_visual:
                 continue
-            geom.attrib.pop("mass", None)
-            geom.set("density", density)
-            collision_geoms += 1
+            if is_hand:
+                geom.attrib.pop("mass", None)
+                geom.set("density", density)
+                # Bit 2: conservative manipulation-object margins. Bit 4:
+                # robot/table and robot self-collision. Deliberately omit bit 1
+                # so fingers cannot enter the cube's exact rendered volume.
+                geom.set("contype", "6")
+                geom.set("conaffinity", "6")
+                collision_geoms += 1
+            else:
+                # Bit 1: exact scene/object collision. Bit 4: robot/table and
+                # robot self-collision. Panda links do not touch hand margins.
+                geom.set("contype", "5")
+                geom.set("conaffinity", "5")
 
     if hand_bodies == 0 or removed_inertials == 0 or collision_geoms == 0:
         raise ValueError(
@@ -117,7 +152,7 @@ def build_genesis_bimanual_orcapanda_mjcf(
     source = resolve_bimanual_orcapanda_mjcf()
     stat = source.stat()
     fingerprint = hashlib.sha256(
-        f"{source}:{stat.st_mtime_ns}:{stat.st_size}:{hand_density:g}:v1".encode()
+        f"{source}:{stat.st_mtime_ns}:{stat.st_size}:{hand_density:g}:v6".encode()
     ).hexdigest()[:16]
     root = (
         Path(cache_dir).expanduser().resolve()

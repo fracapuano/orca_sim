@@ -18,6 +18,9 @@ RIGHT_WRIST_LINK = "orcahand_right_ForeArmStructure-Model_e18f2368"
 WORKBENCH_MJCF_PATH = (
     Path(__file__).resolve().parent / "assets" / "genesis" / "workbench.xml"
 )
+CUBE_MJCF_PATH = (
+    Path(__file__).resolve().parent / "assets" / "genesis" / "grasp_cube.xml"
+)
 N_ARM_DOFS = 7
 N_HAND_DOFS = 17
 N_ROBOT_DOFS = 2 * (N_ARM_DOFS + N_HAND_DOFS)
@@ -30,9 +33,10 @@ TABLE_SIZE = np.array([0.75, 1.15, 0.05], dtype=np.float64)
 TABLE_POSITION = np.array([0.42, 0.0, 0.275], dtype=np.float64)
 TABLE_TOP_Z = float(TABLE_POSITION[2] + TABLE_SIZE[2] / 2)
 CUBE_SIZE = 0.05
-CUBE_POSITION = np.array([0.50, -0.27, TABLE_TOP_Z + CUBE_SIZE / 2], dtype=np.float64)
-GRASP_WRIST_XY = np.array([0.36, -0.03], dtype=np.float64)
-APPROACH_WRIST_POSITION = np.array([0.43, -0.11, 0.60], dtype=np.float64)
+CUBE_COLLISION_PADDING = 0.01
+CUBE_POSITION = np.array([0.50, 0.15, TABLE_TOP_Z + CUBE_SIZE / 2], dtype=np.float64)
+GRASP_WRIST_XY = np.array([0.42, 0.32], dtype=np.float64)
+APPROACH_WRIST_POSITION = np.array([0.43, 0.36, 0.70], dtype=np.float64)
 
 HOME_ARM_QPOS = np.array([0.0, -0.6, 0.0, -2.1, 0.0, 1.55, 0.8], dtype=np.float64)
 HOME_QPOS = np.concatenate(
@@ -81,6 +85,14 @@ RIGHT_HAND_CLOSED = np.zeros(N_HAND_DOFS, dtype=np.float64)
 RIGHT_HAND_CLOSED[[2, 3, 5, 6, 8, 9, 11, 12]] = 1.45
 RIGHT_HAND_CLOSED[13:17] = [-0.55, 0.8, 1.4, 1.4]
 
+RIGHT_DIGIT_DOFS = {
+    "pinky": RIGHT_HAND_DOFS[1:4],
+    "ring": RIGHT_HAND_DOFS[4:7],
+    "middle": RIGHT_HAND_DOFS[7:10],
+    "index": RIGHT_HAND_DOFS[10:13],
+    "thumb": RIGHT_HAND_DOFS[13:17],
+}
+
 
 def _as_numpy(value: Any) -> np.ndarray:
     if hasattr(value, "detach"):
@@ -117,6 +129,8 @@ class ScriptedGraspResult:
     final_linear_speed_m_s: float
     max_linear_speed_m_s: float
     final_hand_cube_contacts: int
+    max_collision_penetration_m: float
+    max_visual_penetration_m: float
     max_ik_error: float
     initial_cube_position: tuple[float, float, float]
     grasp_cube_position: tuple[float, float, float]
@@ -191,11 +205,12 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
                 noslip_iterations=5,
                 enable_torsional_friction=True,
                 box_box_detection=True,
+                constraint_timeconst=0.005,
             ),
             viewer_options=gs.options.ViewerOptions(
-                camera_pos=(1.65, -0.05, 1.05),
-                camera_lookat=(0.35, 0.0, 0.40),
-                camera_fov=42,
+                camera_pos=(2.0, -0.05, 1.35),
+                camera_lookat=(0.30, 0.0, 0.62),
+                camera_fov=45,
                 res=(960, 720),
             ),
             show_viewer=render_mode == "human",
@@ -206,48 +221,47 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
             material=gs.materials.Rigid(friction=1.0),
         )
         self.table = self.scene.add_entity(
-            morph=gs.morphs.Box(
-                size=tuple(TABLE_SIZE),
-                pos=tuple(TABLE_POSITION),
-                fixed=True,
-            ),
-            material=gs.materials.Rigid(friction=1.5),
-            surface=gs.surfaces.Default(color=(0.38, 0.20, 0.09, 1.0)),
-        )
-        self.table_frame = self.scene.add_entity(
             morph=gs.morphs.MJCF(
                 file=str(WORKBENCH_MJCF_PATH),
                 requires_jac_and_IK=False,
-                collision=False,
             ),
         )
         self.robot = self.scene.add_entity(
-            morph=gs.morphs.MJCF(file=str(self.asset_path)),
+            morph=gs.morphs.MJCF(
+                file=str(self.asset_path),
+                pos=(0.0, 0.0, TABLE_TOP_Z),
+            ),
             material=gs.materials.Rigid(friction=2.5, friction_torsional=0.008),
         )
         self.cube = self.scene.add_entity(
-            morph=gs.morphs.Box(
-                size=(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
-                pos=tuple(CUBE_POSITION),
+            morph=gs.morphs.MJCF(
+                file=str(CUBE_MJCF_PATH),
             ),
-            material=gs.materials.Rigid(
-                rho=640.0,
-                friction=2.5,
-                friction_torsional=0.008,
-            ),
-            surface=gs.surfaces.Default(color=(0.82, 0.04, 0.03, 1.0)),
         )
+        # Genesis treats MJCF collision masks as entity-local by default, so
+        # masks are ignored between independently imported MJCF entities. This
+        # scene intentionally defines one global contact matrix for the robot,
+        # workbench, and cube; opt those entities into scene-wide masks before
+        # the collider builds its valid-pair table.
+        for entity in (self.table, self.robot, self.cube):
+            entity._is_local_collision_mask = False
         self.camera = None
         if render_mode == "rgb_array":
             self.camera = self.scene.add_camera(
                 res=(960, 720),
-                pos=(1.65, -0.05, 1.05),
-                lookat=(0.35, 0.0, 0.40),
-                fov=42,
+                pos=(2.0, -0.05, 1.35),
+                lookat=(0.30, 0.0, 0.62),
+                fov=45,
             )
 
         self.scene.build()
         self._validate_robot_topology()
+        if len(self.cube.geoms) != 2:
+            raise RuntimeError(
+                "Expected support and hand-margin cube collision geometries"
+            )
+        self._cube_support_geom_idx = int(self.cube.geoms[0].idx)
+        self._cube_margin_geom_idx = int(self.cube.geoms[1].idx)
         self.right_wrist = self.robot.get_link(RIGHT_WRIST_LINK)
         self._configure_controller()
 
@@ -265,7 +279,10 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         rotate_world_x_minus_90 = np.array(
             [np.sqrt(0.5), -np.sqrt(0.5), 0.0, 0.0], dtype=np.float64
         )
-        self._grasp_quat = _quat_multiply(rotate_world_x_minus_90, wrist_home_quat)
+        self._grasp_quat = _quat_multiply(
+            rotate_world_x_minus_90,
+            wrist_home_quat,
+        )
         self._approach_qpos, approach_error = self._solve_right_arm_ik(
             position=APPROACH_WRIST_POSITION,
             init_qpos=READY_QPOS,
@@ -287,6 +304,9 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         self._approach_qpos[LEFT_ARM_DOFS] = READY_LEFT_ARM_QPOS
         self._grasp_open_qpos[LEFT_ARM_DOFS] = READY_LEFT_ARM_QPOS
         self._command_qpos = READY_QPOS.copy()
+        self._rollout_recorder: Callable[[np.ndarray], None] | None = None
+        self._rollout_record_interval = 1
+        self._rollout_physics_step = 0
 
         obs = self._get_obs()
         self.observation_space = spaces.Box(
@@ -315,9 +335,9 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         effort = np.concatenate(
             [
                 np.full(N_ARM_DOFS, 200.0),
-                np.full(N_HAND_DOFS, 20.0),
+                np.full(N_HAND_DOFS, 0.5),
                 np.full(N_ARM_DOFS, 200.0),
-                np.full(N_HAND_DOFS, 20.0),
+                np.full(N_HAND_DOFS, 0.5),
             ]
         )
         kp = np.concatenate(
@@ -375,15 +395,58 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         contacts = self.cube.get_contacts(with_entity=self.robot)
         return int(_as_numpy(contacts["position"]).shape[0])
 
+    def _hand_cube_max_penetration(self) -> float:
+        return self._hand_cube_penetrations()[0]
+
+    def _hand_cube_penetrations(self) -> tuple[float, float]:
+        """Return maximum solver overlap and overlap into the rendered cube."""
+        contacts = self.cube.get_contacts(with_entity=self.robot)
+        penetration = _as_numpy(contacts["penetration"])
+        if penetration.size == 0:
+            return 0.0, 0.0
+
+        geom_a = _as_numpy(contacts["geom_a"]).astype(np.int64)
+        geom_b = _as_numpy(contacts["geom_b"]).astype(np.int64)
+        margin_contact = (geom_a == self._cube_margin_geom_idx) | (
+            geom_b == self._cube_margin_geom_idx
+        )
+        visual_penetration = penetration.copy()
+        visual_penetration[margin_contact] = np.maximum(
+            0.0,
+            penetration[margin_contact] - CUBE_COLLISION_PADDING,
+        )
+        return float(np.max(penetration)), float(np.max(visual_penetration))
+
+    @staticmethod
+    def _right_digit_from_link_name(link_name: str) -> str | None:
+        if "P-Finger" in link_name or "_P-" in link_name:
+            return "pinky"
+        if any(
+            token in link_name for token in ("424a8e75", "8660a1eb", "6ec59111")
+        ):
+            return "ring"
+        if any(
+            token in link_name for token in ("34afb748", "08efa608", "e04a96f2")
+        ):
+            return "middle"
+        if "_I-" in link_name:
+            return "index"
+        if "_T-" in link_name or "T-TP" in link_name:
+            return "thumb"
+        return None
+
     def _get_info(self) -> dict[str, Any]:
         cube_position = self._cube_position()
         cube_velocity = _as_numpy(self.cube.get_dofs_velocity())
         lift_height = float(cube_position[2] - CUBE_POSITION[2])
         finite = bool(np.all(np.isfinite(self._get_obs())))
+        collision_penetration, visual_penetration = self._hand_cube_penetrations()
         return {
             "cube_position": cube_position.copy(),
             "cube_lift_height": lift_height,
             "hand_cube_contacts": self._hand_cube_contacts(),
+            "hand_cube_collision_penetration": collision_penetration,
+            "hand_cube_visual_penetration": visual_penetration,
             "cube_linear_speed": float(np.linalg.norm(cube_velocity[:3])),
             "finite": finite,
             "is_success": finite and lift_height >= 0.10,
@@ -391,6 +454,12 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
 
     def _physics_step(self) -> None:
         self.scene.step(update_visualizer=self.render_mode == "human")
+        if self._rollout_recorder is not None:
+            self._rollout_physics_step += 1
+            if self._rollout_physics_step % self._rollout_record_interval == 0:
+                frame = self.render()
+                if frame is not None:
+                    self._rollout_recorder(frame)
 
     def reset(
         self,
@@ -454,26 +523,116 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         target: np.ndarray,
         steps: int,
         speed_samples: list[float],
+        penetration_samples: list[float] | None = None,
+        visual_penetration_samples: list[float] | None = None,
     ) -> None:
         start = self._command_qpos.copy()
+        target = target.copy()
         for alpha in np.linspace(0.0, 1.0, steps, endpoint=True):
             self._command_qpos = (1.0 - alpha) * start + alpha * target
             self.robot.control_dofs_position(self._command_qpos)
             self._physics_step()
             velocity = _as_numpy(self.cube.get_dofs_velocity())
             speed_samples.append(float(np.linalg.norm(velocity[:3])))
+            if penetration_samples is not None:
+                depth, visual_depth = self._hand_cube_penetrations()
+                penetration_samples.append(depth)
+                if visual_penetration_samples is not None:
+                    visual_penetration_samples.append(visual_depth)
 
-    def _hold(self, steps: int, speed_samples: list[float]) -> None:
-        self._drive_to(self._command_qpos, steps, speed_samples)
+    def _hold(
+        self,
+        steps: int,
+        speed_samples: list[float],
+        penetration_samples: list[float] | None = None,
+        visual_penetration_samples: list[float] | None = None,
+    ) -> None:
+        self._drive_to(
+            self._command_qpos,
+            steps,
+            speed_samples,
+            penetration_samples,
+            visual_penetration_samples,
+        )
+
+    def _close_hand_contact_aware(
+        self,
+        speed_samples: list[float],
+        penetration_samples: list[float],
+        visual_penetration_samples: list[float],
+    ) -> None:
+        """Establish an opposing grasp without commanding digits through the cube."""
+        start = self._command_qpos.copy()
+        closed = start.copy()
+        closed[RIGHT_HAND_DOFS] = RIGHT_HAND_CLOSED
+        frozen_targets: dict[str, np.ndarray] = {}
+        links = self.scene.rigid_solver.links
+
+        def step_and_freeze_contacts(command: np.ndarray) -> None:
+            self._command_qpos = command
+            self.robot.control_dofs_position(command)
+            self._physics_step()
+
+            velocity = _as_numpy(self.cube.get_dofs_velocity())
+            speed_samples.append(float(np.linalg.norm(velocity[:3])))
+            collision_depth, visual_depth = self._hand_cube_penetrations()
+            penetration_samples.append(collision_depth)
+            visual_penetration_samples.append(visual_depth)
+
+            contacts = self.cube.get_contacts(with_entity=self.robot)
+            penetration = _as_numpy(contacts["penetration"])
+            link_a = _as_numpy(contacts["link_a"]).astype(np.int64)
+            link_b = _as_numpy(contacts["link_b"]).astype(np.int64)
+            actual_qpos = _as_numpy(self.robot.get_qpos())
+            for index, depth in enumerate(penetration):
+                name_a = links[int(link_a[index])].name
+                name_b = links[int(link_b[index])].name
+                robot_link_name = name_a if name_a.startswith("orca") else name_b
+                digit = self._right_digit_from_link_name(robot_link_name)
+                if (
+                    digit is not None
+                    and digit not in frozen_targets
+                    and depth >= 2e-4
+                ):
+                    dofs = RIGHT_DIGIT_DOFS[digit]
+                    frozen_targets[digit] = actual_qpos[dofs].copy()
+
+        # Stop each complete kinematic chain on its first measured contact so
+        # the initial closure cannot command a contacted digit through the cube.
+        for alpha in np.linspace(0.0, 1.0, 1_001, endpoint=True):
+            command = start.copy()
+            for digit, dofs in RIGHT_DIGIT_DOFS.items():
+                command[dofs] = (1.0 - alpha) * start[dofs] + alpha * closed[dofs]
+                if digit in frozen_targets:
+                    command[dofs] = frozen_targets[digit]
+            step_and_freeze_contacts(command)
+            if len(frozen_targets) >= 3:
+                actual_qpos = _as_numpy(self.robot.get_qpos())
+                self._command_qpos = actual_qpos.copy()
+                self.robot.control_dofs_position(self._command_qpos)
+                return
+
+        raise RuntimeError("Contact-aware closure did not establish three contacts")
 
     def run_scripted_grasp(
         self,
         *,
         capture: Callable[[str, np.ndarray], None] | None = None,
+        record: Callable[[np.ndarray], None] | None = None,
+        record_fps: int = 30,
     ) -> ScriptedGraspResult:
         """Approach from the ready pose, then run the validated grasp and lift."""
+        if record is not None and self.render_mode != "rgb_array":
+            raise ValueError("Rollout recording requires render_mode='rgb_array'")
+        if record_fps <= 0:
+            raise ValueError("record_fps must be positive")
+        self._rollout_recorder = record
+        self._rollout_record_interval = max(1, round(1.0 / (0.0025 * record_fps)))
+        self._rollout_physics_step = 0
         self.reset(options={"settle_steps": 200})
         speed_samples: list[float] = []
+        penetration_samples: list[float] = []
+        visual_penetration_samples: list[float] = []
         initial_position = self._cube_position()
         if capture is not None:
             frame = self.render()
@@ -482,19 +641,52 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
 
         # Move above the workspace first.  A direct joint-space interpolation
         # from ready to the low grasp pose sweeps the elbow through the table.
-        self._drive_to(self._approach_qpos, 1_000, speed_samples)
-        self._hold(200, speed_samples)
-        self._drive_to(self._grasp_open_qpos, 900, speed_samples)
-        self._hold(200, speed_samples)
+        self._drive_to(
+            self._approach_qpos,
+            1_200,
+            speed_samples,
+            penetration_samples,
+            visual_penetration_samples,
+        )
+        self._hold(
+            200,
+            speed_samples,
+            penetration_samples,
+            visual_penetration_samples,
+        )
+        self._drive_to(
+            self._grasp_open_qpos,
+            1_000,
+            speed_samples,
+            penetration_samples,
+            visual_penetration_samples,
+        )
+        self._hold(
+            200,
+            speed_samples,
+            penetration_samples,
+            visual_penetration_samples,
+        )
         if capture is not None:
             frame = self.render()
             if frame is not None:
                 capture("open", frame)
 
+        self._close_hand_contact_aware(
+            speed_samples,
+            penetration_samples,
+            visual_penetration_samples,
+        )
         closed = self._command_qpos.copy()
-        closed[RIGHT_HAND_DOFS] = RIGHT_HAND_CLOSED
-        self._drive_to(closed, 700, speed_samples)
-        self._hold(300, speed_samples)
+        grasp_hand_qpos = RIGHT_HAND_CLOSED.copy()
+        closed[RIGHT_HAND_DOFS] = grasp_hand_qpos
+        self._drive_to(
+            closed,
+            500,
+            speed_samples,
+            penetration_samples,
+            visual_penetration_samples,
+        )
         grasp_position = self._cube_position()
         if capture is not None:
             frame = self.render()
@@ -510,9 +702,20 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
             max_ik_error = max(max_ik_error, float(np.linalg.norm(error)))
             target = self._command_qpos.copy()
             target[RIGHT_ARM_DOFS] = solution[RIGHT_ARM_DOFS]
-            target[RIGHT_HAND_DOFS] = RIGHT_HAND_CLOSED
-            self._drive_to(target, 700, speed_samples)
-        self._hold(300, speed_samples)
+            target[RIGHT_HAND_DOFS] = grasp_hand_qpos
+            self._drive_to(
+                target,
+                700,
+                speed_samples,
+                penetration_samples,
+                visual_penetration_samples,
+            )
+        self._hold(
+            300,
+            speed_samples,
+            penetration_samples,
+            visual_penetration_samples,
+        )
 
         final_position = self._cube_position()
         final_velocity = _as_numpy(self.cube.get_dofs_velocity())
@@ -522,18 +725,22 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         finite = bool(np.all(np.isfinite(obs)))
         lift_height = float(final_position[2] - CUBE_POSITION[2])
         max_speed = max(speed_samples, default=0.0)
+        max_collision_penetration = max(penetration_samples, default=0.0)
+        max_visual_penetration = max(visual_penetration_samples, default=0.0)
         success = bool(
             finite
             and lift_height >= 0.12
             and contacts >= 4
             and final_speed < 0.05
             and max_speed < 5.0
+            and max_visual_penetration <= 1e-4
             and max_ik_error < 5e-3
         )
         if capture is not None:
             frame = self.render()
             if frame is not None:
                 capture("lift", frame)
+        self._rollout_recorder = None
         return ScriptedGraspResult(
             success=success,
             finite=finite,
@@ -541,6 +748,8 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
             final_linear_speed_m_s=final_speed,
             max_linear_speed_m_s=max_speed,
             final_hand_cube_contacts=contacts,
+            max_collision_penetration_m=max_collision_penetration,
+            max_visual_penetration_m=max_visual_penetration,
             max_ik_error=max_ik_error,
             initial_cube_position=tuple(float(x) for x in initial_position),
             grasp_cube_position=tuple(float(x) for x in grasp_position),
