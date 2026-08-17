@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, ClassVar
 
 import gymnasium as gym
@@ -14,6 +15,9 @@ from gymnasium import spaces
 from orca_sim.genesis_assets import build_genesis_bimanual_orcapanda_mjcf
 
 RIGHT_WRIST_LINK = "orcahand_right_ForeArmStructure-Model_e18f2368"
+WORKBENCH_MJCF_PATH = (
+    Path(__file__).resolve().parent / "assets" / "genesis" / "workbench.xml"
+)
 N_ARM_DOFS = 7
 N_HAND_DOFS = 17
 N_ROBOT_DOFS = 2 * (N_ARM_DOFS + N_HAND_DOFS)
@@ -168,7 +172,14 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
                 fixed=True,
             ),
             material=gs.materials.Rigid(friction=1.5),
-            surface=gs.surfaces.Default(color=(0.35, 0.18, 0.07, 1.0)),
+            surface=gs.surfaces.Default(color=(0.38, 0.20, 0.09, 1.0)),
+        )
+        self.table_frame = self.scene.add_entity(
+            morph=gs.morphs.MJCF(
+                file=str(WORKBENCH_MJCF_PATH),
+                requires_jac_and_IK=False,
+                collision=False,
+            ),
         )
         self.robot = self.scene.add_entity(
             morph=gs.morphs.MJCF(file=str(self.asset_path)),

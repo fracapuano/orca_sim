@@ -74,9 +74,9 @@ See our [`random_policy.py`](random_policy.py) example to see how to instantiate
 
 The Genesis environment uses the two 7-DOF Franka arms and two 17-DOF ORCA
 hands from [`fracapuano/orca_arm`](https://github.com/fracapuano/orca_arm). It
-adds a fixed table and a dynamic 5 cm, 80 g cube, exposes all 48 actuated joints
-through the Gymnasium API, and includes a deterministic side-grasp/lift
-validation. The implementation follows the [Genesis user
+adds a grounded workbench asset and a dynamic 5 cm, 80 g cube, exposes all 48
+actuated joints through the Gymnasium API, and includes a deterministic
+side-grasp/lift validation. The implementation follows the [Genesis user
 guide](https://genesis-world.readthedocs.io/en/latest/user_guide/overview/index.html)
 and currently pins Genesis 1.3.3 for repeatability.
 
@@ -120,6 +120,29 @@ Actions are absolute joint-position targets in asset order. Observations are the
 48 robot positions, 48 robot velocities, 7-value cube pose, and 6-value cube
 velocity (109 values total).
 
+### Visualize a random policy
+
+Use the smooth bounded random-policy example for a live rollout:
+
+```bash
+python scripts/genesis_random_policy.py --render-mode human --seed 0
+```
+
+Or record the same policy headlessly:
+
+```bash
+python scripts/genesis_random_policy.py \
+  --render-mode rgb_array \
+  --duration 20 \
+  --output renders/genesis_random_policy.mp4
+```
+
+The policy draws random arm and hand targets around the reset configuration and
+low-pass filters them before calling `env.step`. Sampling a completely unrelated
+48-joint target from `env.action_space` on every frame is possible, but is not a
+useful visualization: it commands discontinuous full-range motion against a
+high-gain position controller.
+
 ### Contact and inertial treatment
 
 The Panda inertias in the upstream MJCF are preserved. The ORCA hand's authored
@@ -128,6 +151,12 @@ unstable contact in Genesis. At load time, `orca_sim` generates a cached MJCF
 that removes only the 38 hand-link inertials and asks Genesis to integrate them
 from the collision meshes at 650 kg/m³. It also resolves every mesh to an
 absolute path; the upstream asset itself is never modified.
+
+The workbench combines a collidable 0.75 × 1.15 m top with a packaged MJCF frame
+containing four grounded steel legs, aprons, lower rails, and feet. The frame is
+visual-only so it cannot introduce irrelevant robot–furniture contacts; the
+cube-contact surface remains at the same calibrated height as the validated
+grasp.
 
 The validated rigid-contact configuration uses a 2.5 ms control step with five
 physics substeps, 150 constraint iterations, five no-slip iterations, box-box

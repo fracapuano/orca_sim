@@ -3,9 +3,12 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import mujoco
+import numpy as np
 import pytest
 
 from orca_sim.genesis_assets import prepare_bimanual_orcapanda_mjcf
+from orca_sim.genesis_env import TABLE_POSITION, TABLE_SIZE, WORKBENCH_MJCF_PATH
 
 
 def test_prepare_mjcf_preserves_panda_and_recomputes_hand_inertias(
@@ -61,3 +64,17 @@ def test_prepare_mjcf_rejects_non_orca_asset(tmp_path: Path) -> None:
     source.write_text("<mujoco><worldbody/></mujoco>", encoding="utf-8")
     with pytest.raises(ValueError, match="expected ORCA-hand"):
         prepare_bimanual_orcapanda_mjcf(source, tmp_path / "output.xml")
+
+
+def test_workbench_asset_is_grounded_and_preserves_task_surface() -> None:
+    model = mujoco.MjModel.from_xml_path(str(WORKBENCH_MJCF_PATH))
+    workbench_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "workbench")
+
+    np.testing.assert_allclose(model.body_pos[workbench_id], [TABLE_POSITION[0], 0, 0])
+    np.testing.assert_allclose(TABLE_SIZE, [0.75, 1.15, 0.05])
+    assert TABLE_POSITION[2] + TABLE_SIZE[2] / 2 == pytest.approx(0.30)
+
+    for name in ("foot_xn_yn", "foot_xn_yp", "foot_xp_yn", "foot_xp_yp"):
+        geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)
+        bottom_z = model.geom_pos[geom_id, 2] - model.geom_size[geom_id, 2]
+        assert bottom_z == pytest.approx(0.0)

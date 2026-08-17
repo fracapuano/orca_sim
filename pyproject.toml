@@ -45,6 +45,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 orca_sim = [
   "*.xml",
+  "assets/genesis/*.xml",
   "scenes/*/*.xml",
   "assets/mjcf/*.xml",
   "assets/mjcf/*/*.xml",
