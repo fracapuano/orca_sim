@@ -101,10 +101,20 @@ def test_workbench_asset_is_grounded_and_preserves_task_surface() -> None:
     assert TABLE_POSITION[2] + TABLE_SIZE[2] / 2 == pytest.approx(0.30)
 
     surface_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "work_surface")
+    visual_id = mujoco.mj_name2id(
+        model, mujoco.mjtObj.mjOBJ_GEOM, "work_surface_visual"
+    )
     np.testing.assert_allclose(model.geom_size[surface_id], TABLE_SIZE / 2)
+    np.testing.assert_allclose(model.geom_size[visual_id], TABLE_SIZE / 2)
     assert model.geom_pos[surface_id, 2] == pytest.approx(TABLE_POSITION[2])
+    assert model.geom_pos[visual_id, 2] == pytest.approx(TABLE_POSITION[2])
     assert model.geom_contype[surface_id] == 5
     assert model.geom_conaffinity[surface_id] == 5
+    assert model.geom_contype[visual_id] == 0
+    assert model.geom_conaffinity[visual_id] == 0
+    np.testing.assert_allclose(
+        model.mat_rgba[model.geom_matid[visual_id]], [0.38, 0.20, 0.09, 1]
+    )
 
     for name in ("foot_xn_yn", "foot_xn_yp", "foot_xp_yn", "foot_xp_yp"):
         geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)

@@ -38,6 +38,11 @@ CUBE_POSITION = np.array([0.50, 0.15, TABLE_TOP_Z + CUBE_SIZE / 2], dtype=np.flo
 GRASP_WRIST_XY = np.array([0.42, 0.32], dtype=np.float64)
 APPROACH_WRIST_POSITION = np.array([0.43, 0.36, 0.70], dtype=np.float64)
 
+CAMERA_RESOLUTION = (1280, 720)
+CAMERA_POSITION = (1.80, -0.72, 1.28)
+CAMERA_LOOKAT = (0.31, 0.0, 0.55)
+CAMERA_FOV = 42
+
 HOME_ARM_QPOS = np.array([0.0, -0.6, 0.0, -2.1, 0.0, 1.55, 0.8], dtype=np.float64)
 HOME_QPOS = np.concatenate(
     [HOME_ARM_QPOS, np.zeros(N_HAND_DOFS), HOME_ARM_QPOS, np.zeros(N_HAND_DOFS)]
@@ -207,23 +212,47 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
                 box_box_detection=True,
                 constraint_timeconst=0.005,
             ),
-            viewer_options=gs.options.ViewerOptions(
-                camera_pos=(2.0, -0.05, 1.35),
-                camera_lookat=(0.30, 0.0, 0.62),
-                camera_fov=45,
-                res=(960, 720),
+            vis_options=gs.options.VisOptions(
+                shadow=True,
+                plane_reflection=False,
+                background_color=(0.14, 0.14, 0.145),
+                ambient_light=(0.30, 0.31, 0.34),
+                lights=[
+                    gs.options.vis.DirectionalLight(
+                        dir=(-1.4, -0.8, -2.2),
+                        color=(1.0, 0.94, 0.86),
+                        intensity=2.8,
+                    ),
+                ],
             ),
+            viewer_options=gs.options.ViewerOptions(
+                camera_pos=CAMERA_POSITION,
+                camera_lookat=CAMERA_LOOKAT,
+                camera_fov=CAMERA_FOV,
+                res=CAMERA_RESOLUTION,
+            ),
+            renderer=gs.renderers.Rasterizer(),
             show_viewer=render_mode == "human",
         )
 
         self.plane = self.scene.add_entity(
             morph=gs.morphs.Plane(),
             material=gs.materials.Rigid(friction=1.0),
+            surface=gs.surfaces.Rough(
+                color=(0.075, 0.082, 0.095, 1.0),
+                vis_mode="visual",
+                smooth=True,
+            ),
         )
         self.table = self.scene.add_entity(
             morph=gs.morphs.MJCF(
                 file=str(WORKBENCH_MJCF_PATH),
                 requires_jac_and_IK=False,
+            ),
+            surface=gs.surfaces.Default(
+                vis_mode="visual",
+                smooth=True,
+                default_roughness=0.55,
             ),
         )
         self.robot = self.scene.add_entity(
@@ -232,10 +261,20 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
                 pos=(0.0, 0.0, TABLE_TOP_Z),
             ),
             material=gs.materials.Rigid(friction=2.5, friction_torsional=0.008),
+            surface=gs.surfaces.Default(
+                vis_mode="visual",
+                smooth=True,
+                default_roughness=0.42,
+            ),
         )
         self.cube = self.scene.add_entity(
             morph=gs.morphs.MJCF(
                 file=str(CUBE_MJCF_PATH),
+            ),
+            surface=gs.surfaces.Default(
+                vis_mode="visual",
+                smooth=True,
+                default_roughness=0.50,
             ),
         )
         # Genesis treats MJCF collision masks as entity-local by default, so
@@ -248,10 +287,10 @@ class BimanualOrcaPandaCubeGenesisEnv(gym.Env[np.ndarray, np.ndarray]):
         self.camera = None
         if render_mode == "rgb_array":
             self.camera = self.scene.add_camera(
-                res=(960, 720),
-                pos=(2.0, -0.05, 1.35),
-                lookat=(0.30, 0.0, 0.62),
-                fov=45,
+                res=CAMERA_RESOLUTION,
+                pos=CAMERA_POSITION,
+                lookat=CAMERA_LOOKAT,
+                fov=CAMERA_FOV,
             )
 
         self.scene.build()

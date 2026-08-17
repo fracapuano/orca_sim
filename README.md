@@ -80,6 +80,11 @@ side-grasp/lift validation. The implementation follows the [Genesis user
 guide](https://genesis-world.readthedocs.io/en/latest/user_guide/overview/index.html)
 and currently pins Genesis 1.3.3 for repeatability.
 
+The robot, workbench, and cube are all imported through Genesis's MJCF loader;
+no URDF visual model is used. The renderer selects the detailed MJCF visual
+meshes, smooth normals, authored materials, a neutral studio floor, and a
+three-quarter 1280 × 720 camera with balanced ambient and directional light.
+
 Use Python 3.11 and install the optional simulator dependencies:
 
 ```bash
@@ -170,11 +175,12 @@ that removes only the 38 hand-link inertials and asks Genesis to integrate them
 from the collision meshes at 650 kg/m³. It also resolves every mesh to an
 absolute path; the upstream asset itself is never modified.
 
-The workbench is one packaged MJCF asset with a collidable 0.75 × 1.15 m wooden
-top, four grounded steel legs, aprons, lower rails, and feet. Its frame is
-visual-only so it cannot introduce irrelevant robot–furniture contacts; the
-cube-contact surface remains at the same calibrated height as the validated
-grasp.
+The workbench is one packaged MJCF asset with a 0.75 × 1.15 m wooden top, four
+grounded steel legs, aprons, lower rails, and feet. The top has coincident
+visual and collision geoms so Genesis retains its authored wood material rather
+than drawing the generic collision surface. Its frame is visual-only so it
+cannot introduce irrelevant robot–furniture contacts; the cube-contact surface
+remains at the same calibrated height as the validated grasp.
 
 The cube has separate, coincident visual and support geometry plus a 10 mm
 non-rendered contact margin around only its exposed sides and top. Collision

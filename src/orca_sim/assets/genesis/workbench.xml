@@ -16,14 +16,21 @@
         while intentionally excluding the cube's bit-2 hand-contact margin.
       -->
       <geom
-        name="work_surface"
+        name="work_surface_visual"
         type="box"
         pos="0 0 0.275"
         size="0.375 0.575 0.025"
         material="wood"
+      />
+      <geom
+        name="work_surface"
+        type="box"
+        pos="0 0 0.275"
+        size="0.375 0.575 0.025"
         friction="1.5 0.005 0.0001"
         contype="5"
         conaffinity="5"
+        rgba="0 0 0 0"
       />
       <!-- Grounded visual frame beneath the manipulation surface. -->
       <geom name="leg_xn_yn" type="box" pos="-0.27 -0.48 0.135" size="0.03 0.03 0.115" material="steel"/>
