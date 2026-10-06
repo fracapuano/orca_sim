@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ORCA · Robot layout</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#12181f;color:#e7edf2}
+    *{box-sizing:border-box}body{margin:0}header{padding:20px 28px;border-bottom:1px solid #303b46;display:flex;gap:18px;align-items:center;flex-wrap:wrap}h1{font-size:20px;margin:0;font-weight:550}header span{color:#9aabb9;font-size:13px}
+    main{display:grid;grid-template-columns:minmax(0,1fr) 350px;max-width:1600px;margin:auto;padding:22px;gap:24px}section{min-width:0}.preview{position:sticky;top:18px;align-self:start}#view{width:100%;display:block;aspect-ratio:16/9;object-fit:contain;background:#1c2c3a;border-radius:8px;touch-action:none;cursor:grab}#view:active{cursor:grabbing}.hint{font-size:13px;color:#a8b9c6;line-height:1.5;margin:10px 0 16px}h2{font-size:15px;font-weight:550;margin:0 0 15px}.control{margin:12px 0}.row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;font-size:13px}input[type=range]{width:100%;accent-color:#63ceb9;min-height:24px;margin:0}input[type=number]{width:84px;background:#222d37;color:#e7edf2;border:1px solid #44515d;border-radius:4px;padding:5px;font:inherit;font-variant-numeric:tabular-nums}button{padding:10px 14px;font:inherit;font-size:13px;border-radius:6px;border:1px solid #425261;background:#23313e;color:#e7edf2;cursor:pointer}button:disabled{opacity:.5;cursor:default}button[aria-pressed=true]{border-color:#70d4be;color:#9ce7d4}#save{background:#70d4be;color:#10251f;border-color:transparent}.buttons{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}#status{font-size:14px;line-height:1.5;min-height:44px}.bad{color:#ffb59a}#saved{font-size:13px;color:#91dac9;overflow-wrap:anywhere;min-height:40px}details{color:#b1c2cf;font-size:13px}summary{cursor:pointer;padding:10px 0}aside details{border-top:1px solid #303b46;padding:3px 0}aside summary{font-size:14px;font-weight:550;color:#e7edf2}.locked{background:#1d2a30;border:1px solid #37524e;padding:12px 15px;border-radius:6px;font-size:13px;line-height:1.5;margin:16px 0}.locked strong{color:#91dac9;font-weight:550}code{overflow-wrap:anywhere;font-size:12px}#arm-values{line-height:1.7}button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid #70d4be;outline-offset:3px}@media(max-width:900px){main{grid-template-columns:1fr}.preview{position:static}aside{display:grid;grid-template-columns:1fr 1fr;gap:0 22px}aside>h2,aside>.hint{grid-column:1/-1}}@media(max-width:520px){main{padding:12px}header{padding:16px}aside{display:block}input[type=range]{min-height:36px}}
+  </style>
+</head>
+<body>
+<header><h1 id="title">ORCA · Robot layout</h1><span>Native MuJoCo · actual MJCF scene · physics paused</span></header>
+<main>
+  <section class="preview" aria-label="MuJoCo scene preview">
+    <img id="view" alt="Live MuJoCo view of the Panda and ORCA hand on the cube table">
+    <div class="buttons"><button id="focus-scene" aria-pressed="false">Whole robot</button><button id="focus-top" aria-pressed="false">Top view</button><button id="focus-hand" aria-pressed="false">Hand close-up</button></div>
+    <p class="hint">Drag to orbit · scroll to zoom. The preview is paused: editing does not run a grasp or apply forces.</p>
+    <div class="locked"><strong id="locked-title"></strong><br><span id="locked-description"></span><details><summary>Show fixed arm configuration</summary><div id="arm-values"></div></details></div>
+    <div id="status" role="status" aria-live="polite">Rendering the scene…</div>
+    <div class="buttons"><button id="save" disabled>Save layout</button><button id="reset">Revert unsaved layout</button></div>
+    <div id="saved" role="status" aria-live="polite">The saved configuration is loaded.</div>
+    <details><summary>Where this is saved</summary><p><code id="save-path"></code></p><p id="save-description">This is the default home for newly created native MuJoCo Panda environments and their resets. Position is saved in metres; yaw and joint angles in radians. Existing versions are backed up.</p><p>Contact warnings only cover enabled collision pairs. A clear preview is not an IK, dynamic-stability or grasp test. A new layout needs a new stacking-rollout validation; an already running simulator must be restarted to load it.</p></details>
+  </section>
+  <aside aria-label="Robot pose sliders">
+    <h2 id="controls-title"></h2>
+    <p class="hint" id="controls-hint"></p>
+  </aside>
+</main>
+<script>
+const initial = __INITIAL__;
+const token = __TOKEN__;
+const layout=initial.editor_mode==='layout';
+const objects=initial.editor_mode==='objects';
+const copyObjects=value=>Object.fromEntries(Object.entries(value).map(([name,xy])=>[name,[...xy]]));
+const state = {version:2,arm_qpos:[...initial.arm_qpos],base_pos:[...initial.base_pos],base_yaw:initial.base_yaw,hand_qpos:{...initial.hand_qpos},objects_robot:copyObjects(initial.objects_robot),camera:objects?[initial.base_yaw*180/Math.PI,-90,1.85]:[135,-22,layout?1.85:.55],focus:layout||objects?'scene':'hand'};
+let savedHand = {...initial.saved_hand};
+let savedBase = [...initial.saved_base_pos], savedYaw=initial.saved_base_yaw;
+let savedObjects=copyObjects(initial.saved_objects_robot);
+const controls = [];
+const view = document.getElementById('view'), statusText = document.getElementById('status'), saveButton = document.getElementById('save');
+const title=objects?'ORCA · Cube layout':layout?'ORCA · Robot layout':'ORCA · Hand rest pose';
+document.title=title;document.getElementById('title').textContent=title;
+document.getElementById('locked-title').textContent=objects?'Robot base, arm & hand: locked.':layout?'Arm & hand joint angles: locked.':'Arm & base: locked to your chosen home.';
+document.getElementById('locked-description').textContent=objects?'Only the cubes move. Their height stays on the table; the green stacking target follows the blue cube.':layout?'Move the entire robot on the table without changing its posture. Table and cubes stay fixed.':'Only the ORCA wrist and fingers can change here.';
+document.getElementById('controls-title').textContent=objects?'Cubes · relative to robot base':layout?'Robot base · position & orientation':'Hand joints · degrees';
+document.getElementById('controls-hint').textContent=objects?'Forward ↑ / Left ← in Robot top view. Zero is the mounting base; positive forward moves away from it, positive left moves toward the robot’s left. Values are in metres; cube centres stay at table height.':layout?'X and Y are world coordinates in metres. Yaw turns the whole robot around its base, counterclockwise viewed from above. Mounting Z stays fixed at '+initial.base_pos[2].toFixed(3)+' m.':'Choose a finger below. Each slider controls one actual joint within its MJCF limits.';
+saveButton.textContent=objects?'Save cube layout':layout?'Save layout':'Save hand rest pose';
+document.getElementById('reset').textContent=objects?'Revert unsaved cube edits':layout?'Revert unsaved layout':'Revert unsaved hand edits';
+document.getElementById('focus-'+(objects?'top':state.focus)).setAttribute('aria-pressed','true');
+if(objects){document.getElementById('focus-top').textContent='Robot top view';document.getElementById('save-description').textContent='Saves only tabletop_layout.json for newly created native MuJoCo environments and demos. Sliders use robot coordinates; the file stores world coordinates in metres. Your robot home file is not changed. Existing layouts are backed up.';}
+const unsaved=objects?JSON.stringify(state.objects_robot)!==JSON.stringify(savedObjects):layout?JSON.stringify(state.base_pos)!==JSON.stringify(savedBase)||state.base_yaw!==savedYaw:JSON.stringify(state.hand_qpos)!==JSON.stringify(savedHand);
+document.getElementById('saved').textContent=unsaved?'Unsaved edits restored · save or revert below':'The saved configuration is loaded.';
+let pending=false,busy=false,timer,revision=0;
+const groups = [
+  ['Wrist',[['right_wrist','Wrist bend']],true],
+  ['Thumb',[['right_t-cmc','Base rotation (CMC)'],['right_t-abd','Spread (abduction)'],['right_t-mcp','Base bend (MCP)'],['right_t-pip','Tip bend (PIP)']],true],
+  ...[['Index','i'],['Middle','m'],['Ring','r'],['Little','p']].map(([label,prefix])=>[label,[['right_'+prefix+'-abd','Spread (abduction)'],['right_'+prefix+'-mcp','Base bend (MCP)'],['right_'+prefix+'-pip','Tip bend (PIP)']],label==='Index'])
+];
+function control(parent, group, joint, label) {
+  const factor=180/Math.PI,limits=initial.hand_joint_limits[joint];
+  const wrap=document.createElement('div');wrap.className='control';
+  const row=document.createElement('div');row.className='row';const caption=document.createElement('label');caption.textContent=label;
+  const slider=document.createElement('input'), numeric=document.createElement('input');slider.type='range';numeric.type='number';
+  slider.id=joint;caption.htmlFor=joint;slider.setAttribute('aria-label',group+' '+label);numeric.setAttribute('aria-label',group+' '+label+' value');
+  for(const input of [slider,numeric]){input.min=limits[0]*factor;input.max=limits[1]*factor;input.step=.1;input.title=joint;}
+  let displayedNumber;
+  function refresh(){slider.value=state.hand_qpos[joint]*factor;numeric.value=(state.hand_qpos[joint]*factor).toFixed(1);displayedNumber=numeric.value;}
+  function change(input){const n=Number(input.value);if(!Number.isFinite(n)||input.value===''||(input===numeric&&input.value===displayedNumber))return;state.hand_qpos[joint]=Math.min(limits[1],Math.max(limits[0],n/factor));refresh();document.getElementById('saved').textContent='Unsaved hand edits · arm home unchanged';schedule();}
+  slider.addEventListener('input',()=>change(slider));numeric.addEventListener('change',()=>change(numeric));
+  numeric.addEventListener('blur',()=>change(numeric));numeric.addEventListener('keydown',e=>{if(e.key==='Enter')change(numeric);});
+  refresh();row.append(caption,numeric);wrap.append(row,slider);parent.append(wrap);controls.push(refresh);
+}
+function baseControl(label,key,index,limits,factor,step,digits) {
+  const wrap=document.createElement('div');wrap.className='control';
+  const row=document.createElement('div');row.className='row';const caption=document.createElement('label');caption.textContent=label;
+  const slider=document.createElement('input'),numeric=document.createElement('input');slider.type='range';numeric.type='number';
+  slider.id='base-'+key+'-'+index;caption.htmlFor=slider.id;slider.setAttribute('aria-label',label);numeric.setAttribute('aria-label',label+' value');
+  for(const input of [slider,numeric]){input.min=limits[0];input.max=limits[1];input.step=step;}
+  const current=()=>index===null?state[key]:state[key][index];
+  let displayedNumber;
+  function refresh(){slider.value=current()*factor;numeric.value=(current()*factor).toFixed(digits);displayedNumber=numeric.value;}
+  function change(input){const n=Number(input.value);if(!Number.isFinite(n)||input.value===''||(input===numeric&&input.value===displayedNumber))return;const value=Math.max(limits[0],Math.min(limits[1],n))/factor;if(index===null)state[key]=value;else state[key][index]=value;refresh();document.getElementById('saved').textContent='Unsaved layout · arm and hand angles unchanged';schedule();}
+  slider.addEventListener('input',()=>change(slider));numeric.addEventListener('change',()=>change(numeric));
+  numeric.addEventListener('blur',()=>change(numeric));numeric.addEventListener('keydown',e=>{if(e.key==='Enter')change(numeric);});
+  refresh();row.append(caption,numeric);wrap.append(row,slider);document.querySelector('aside').append(wrap);controls.push(refresh);
+}
+function cubeLimits(name,axis){
+  const c=Math.cos(state.base_yaw),s=Math.sin(state.base_yaw),rotation=[[c,-s],[s,c]];
+  let low=-Infinity,high=Infinity;
+  for(let world=0;world<2;world++){
+    const k=rotation[world][axis],fixed=state.base_pos[world]+rotation[world][1-axis]*state.objects_robot[name][1-axis];
+    if(Math.abs(k)<1e-12)continue;
+    const a=(initial.object_xy_world_limits[world][0]-fixed)/k,b=(initial.object_xy_world_limits[world][1]-fixed)/k;
+    low=Math.max(low,Math.min(a,b));high=Math.min(high,Math.max(a,b));
+  }
+  return [Math.ceil((low-1e-9)*1000)/1000,Math.floor((high+1e-9)*1000)/1000];
+}
+function cubeControl(parent,name,label,axis){
+  const wrap=document.createElement('div');wrap.className='control';const row=document.createElement('div');row.className='row';
+  const caption=document.createElement('label');caption.textContent=(axis===0?'Forward':'Left')+' (m)';
+  const slider=document.createElement('input'),numeric=document.createElement('input');slider.type='range';numeric.type='number';
+  slider.id=name+'-'+axis;caption.htmlFor=slider.id;slider.setAttribute('aria-label',label+' '+caption.textContent);numeric.setAttribute('aria-label',label+' '+caption.textContent+' value');
+  let displayedNumber;
+  function refresh(){const [low,high]=cubeLimits(name,axis);for(const input of [slider,numeric]){input.min=low;input.max=high;input.step=.001;}slider.value=state.objects_robot[name][axis];numeric.value=state.objects_robot[name][axis].toFixed(3);displayedNumber=numeric.value;}
+  function change(input){const n=Number(input.value);if(!Number.isFinite(n)||input.value===''||(input===numeric&&input.value===displayedNumber))return;const [low,high]=cubeLimits(name,axis);state.objects_robot[name][axis]=Math.max(low,Math.min(high,n));controls.forEach(refresh=>refresh());document.getElementById('saved').textContent='Unsaved cube layout · robot home unchanged';schedule();}
+  slider.addEventListener('input',()=>change(slider));numeric.addEventListener('change',()=>change(numeric));numeric.addEventListener('blur',()=>change(numeric));numeric.addEventListener('keydown',e=>{if(e.key==='Enter')change(numeric);});
+  row.append(caption,numeric);wrap.append(row,slider);parent.append(wrap);controls.push(refresh);refresh();
+}
+if(objects){
+  for(const [name,label,role,color] of [['red_cube','Red cube','pick','#ff9286'],['blue_cube','Blue cube','place + target','#96baff']]){
+    const section=document.createElement('details');section.open=true;const heading=document.createElement('summary');heading.textContent=label+' · '+role;heading.style.color=color;section.append(heading);cubeControl(section,name,label,0);cubeControl(section,name,label,1);document.querySelector('aside').append(section);
+  }
+}else if(layout){
+  baseControl('Base X (m)','base_pos',0,initial.base_xy_limits[0],1,.001,3);
+  baseControl('Base Y (m)','base_pos',1,initial.base_xy_limits[1],1,.001,3);
+  baseControl('Base yaw (°)','base_yaw',null,[-180,180],180/Math.PI,.1,1);
+}else{
+  for(const [group,joints,open] of groups){const section=document.createElement('details');section.open=open;const heading=document.createElement('summary');heading.textContent=group;section.append(heading);joints.forEach(([joint,label])=>control(section,group,joint,label));document.querySelector('aside').append(section);}
+}
+document.getElementById('arm-values').textContent='Joints (°): '+initial.arm_qpos.map(n=>(n*180/Math.PI).toFixed(3)).join(', ');
+document.getElementById('save-path').textContent=initial.save_path;
+async function post(path,payload){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Pose-Token':token},body:JSON.stringify(payload)});const answer=await r.json();if(!r.ok)throw new Error(answer.error||'Request failed');return answer;}
+function schedule(){revision++;pending=true;saveButton.disabled=true;statusText.textContent='Updating MuJoCo preview…';statusText.className='';clearTimeout(timer);timer=setTimeout(pump,60);}
+async function pump(){if(busy||!pending)return;busy=true;pending=false;const sentRevision=revision;
+  try {const answer=await post('/preview',state);if(sentRevision===revision){view.src=answer.image;const hits=answer.collisions;statusText.textContent=hits.length?hits.length+' intersecting contacts · deepest '+Math.max(...hits.map(c=>c.depth_mm)).toFixed(2)+' mm. Adjust the '+(objects?'cubes':layout?'layout':'hand')+' before saving.':objects?'Cubes fit on the table; no cube overlap or robot contacts deeper than 1 mm detected. IK and rollout still need validation.':'No enabled robot contacts deeper than 1 mm detected.';statusText.className=hits.length?'bad':'';saveButton.disabled=hits.length>0;}}
+  catch(error){statusText.textContent=error.message;statusText.className='bad';}
+  finally{busy=false;if(pending)pump();}
+}
+saveButton.addEventListener('click',async()=>{saveButton.disabled=true;const sentRevision=revision;try{const r=await post('/save',state);savedHand={...r.saved_hand};savedBase=[...r.saved_base_pos];savedYaw=r.saved_base_yaw;savedObjects=copyObjects(r.saved_objects_robot);document.getElementById('saved').textContent=sentRevision===revision?(objects?'Cube layout saved as default · robot home unchanged':layout?'Layout saved as default · arm and hand angles unchanged':'Hand rest pose saved as default · arm home unchanged'):'Previous configuration saved; current edits are still unsaved';}catch(e){document.getElementById('saved').textContent=e.message;}finally{schedule();}});
+document.getElementById('reset').addEventListener('click',()=>{if(objects){state.objects_robot=copyObjects(savedObjects);}else if(layout){state.base_pos=[...savedBase];state.base_yaw=savedYaw;}else state.hand_qpos={...savedHand};controls.forEach(update=>update());document.getElementById('saved').textContent=objects?'Saved cube layout restored · robot home unchanged':layout?'Saved layout restored · arm and hand angles unchanged':'Saved hand rest pose restored · arm home unchanged';schedule();});
+for(const focus of ['hand','scene','top'])document.getElementById('focus-'+focus).addEventListener('click',()=>{state.focus=focus==='hand'?'hand':'scene';state.camera=focus==='top'?[objects?state.base_yaw*180/Math.PI:90,-90,1.85]:[135,-22,focus==='hand'?.55:1.85];for(const f of ['hand','scene','top'])document.getElementById('focus-'+f).setAttribute('aria-pressed',String(f===focus));schedule();});
+let drag=null;
+view.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY,...state.camera];view.setPointerCapture(e.pointerId);});
+view.addEventListener('pointermove',e=>{if(!drag)return;state.camera[0]=drag[2]-(e.clientX-drag[0])*.3;state.camera[1]=Math.max(-90,Math.min(90,drag[3]+(e.clientY-drag[1])*.2));for(const f of ['hand','scene','top'])document.getElementById('focus-'+f).setAttribute('aria-pressed','false');schedule();});
+view.addEventListener('pointerup',()=>drag=null);view.addEventListener('pointercancel',()=>drag=null);
+view.addEventListener('wheel',e=>{e.preventDefault();state.camera[2]=Math.max(.18,Math.min(4,state.camera[2]*Math.exp(e.deltaY*.001)));schedule();},{passive:false});
+schedule();
+</script>
+</body>
+</html>

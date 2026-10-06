@@ -18,6 +18,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+panda = [
+  "mujoco>=3.3",
+  "orca_arm @ git+https://github.com/fracapuano/orca_arm.git@d92e47106d282edde6230170aa6e70429a5dccea",
+]
+render = [
+  "imageio>=2.34",
+  "imageio-ffmpeg>=0.5",
+  "pillow>=10.1",
+]
 genesis = [
   "genesis-world==1.3.3",
   "torch>=2.5",
@@ -45,7 +54,10 @@ where = ["src"]
 [tool.setuptools.package-data]
 orca_sim = [
   "*.xml",
+  "scenes/*.xml",
   "assets/genesis/*.xml",
+  "assets/mujoco/*.html",
+  "assets/mujoco/*.json",
   "scenes/*/*.xml",
   "assets/mjcf/*.xml",
   "assets/mjcf/*/*.xml",

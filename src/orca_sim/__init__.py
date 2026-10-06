@@ -13,6 +13,7 @@ from orca_sim.envs import (
 from orca_sim.genesis_env import BimanualOrcaPandaCubeGenesisEnv, ScriptedGraspResult
 from orca_sim.registry import register_envs
 from orca_sim.task_envs import OrcaHandRightCubeOrientation
+from orca_sim.mujoco_panda import OrcaPandaCubeStackingMujoco
 
 __all__ = [
     "OrcaHandCombined",
@@ -22,6 +23,7 @@ __all__ = [
     "OrcaHandRight",
     "OrcaHandRightCubeOrientation",
     "OrcaHandRightExtended",
+    "OrcaPandaCubeStackingMujoco",
     "BimanualOrcaPandaCubeGenesisEnv",
     "ScriptedGraspResult",
     "latest_version",
