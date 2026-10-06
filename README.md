@@ -35,6 +35,20 @@ We are still iterating (a lot!) on this package. If you need stability, consider
 
 ## Getting started
 
+### Saved cube layout and dimensions
+
+The native Panda task loads `assets/mujoco/tabletop_layout.json`: red cube
+`(0.438, 0.201, 0.353)` m, blue cube `(0, 0.201, 0.353)` m, and target marker
+`(0, 0.201, 0.326)` m. The source scene keeps a generic object layout; the
+builder applies these saved world coordinates to both MJCF bodies and reset
+keyframes. Robot home/base settings remain in their separate JSON file.
+
+Both cubes are **5.6 cm** per side (20% smaller than the original 7 cm).
+Density is unchanged: mass is **30.72 g**, and each diagonal inertia is
+**0.00001605632 kg m²**. Centres are 7 mm lower so both bottoms remain at the
+0.325 m tabletop. Friction and contact settings are unchanged by this resize.
+Scene validation and lift-height measurement use the actual cube dimensions.
+
 ### Native Panda assembly and canonical home
 
 Install `python -m pip install -e '.[panda,dev]' 'mujoco==3.11.0'` to use
