@@ -25,6 +25,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["slow: end-to-end physics regressions"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -45,5 +46,9 @@ orca_sim = [
   "assets/mjcf/right/collision/*.stl",
   "models/mjcf/*.mjcf",
   "models/*/*.mjcf",
+  "models/*/mjcf/*.mjcf",
+  "models/*/mjcf/*.xml",
+  "models/*/assets/*.xml",
+  "models/*/assets/*/*.stl",
   "models/*/assets/mjcf/*/*.stl",
 ]

@@ -35,6 +35,27 @@ We are still iterating (a lot!) on this package. If you need stability, consider
 
 ## Getting started
 
+### Native v2 hand contact fixes
+
+Both native v2 hand MJCFs now collide with their ten finger-skin geometries.
+Previously these visible surfaces had both collision masks disabled. A scoped
+hand contact class uses `solref="0.004 1"`, `solimp="0.999 0.9999 0.001"` and
+`priority="1"`. The MJCF also selects elliptic friction and `impratio="10"`;
+these two solver options are scene-wide, not per-hand properties. Use a
+timestep of at most 2 ms with this contact time constant.
+
+Joint limits, motor gains, ±1 Nm actuator caps, friction coefficients, meshes
+and inertias are unchanged. There is no grasp attachment or force-limiting
+adapter. This is independent of the Panda arm and any task scene.
+
+`python -m pytest tests/test_hand_contacts.py -q` checks both hands, compares
+unchanged mechanics, and steps an identical 40-second increasing-closure
+experiment with corrected versus legacy contacts. The free cube is supported
+only during acquisition; the support retracts before the strong squeeze.
+Vertex-overlap measurements are a lower-bound diagnostic, not proof of zero
+intersection for arbitrary objects or actions. Physics validation uses
+MuJoCo 3.11.0.
+
 `orca_sim` follows the [Gymnasium](https://gymnasium.farama.org/) API, and uses [Mujoco](https://mujoco.readthedocs.io/en/stable/overview.html) for physics simulation and rendering.
 You can instantiate an environment with one hand (or both) via:
 
@@ -112,4 +133,3 @@ The implementation is intentionally split so it doubles as a porting template:
 - The task scene lives in [`src/orca_sim/scenes/v2/scene_right_cube_orientation.xml`](src/orca_sim/scenes/v2/scene_right_cube_orientation.xml) and composes the existing hand MJCF with a single task cube.
 - The nominal palm-up hand pose and in-palm cube spawn are now authored into the task-specific scene/model files, so opening the XML directly in MuJoCo shows the intended setup.
 - The task logic lives in [`src/orca_sim/task_envs.py`](src/orca_sim/task_envs.py), including reset-time cube randomization and optional hand-pose overrides for custom MJCF layouts.
-
