@@ -78,6 +78,42 @@ free cubes). Custom IK/retargeting can supply these actions without a scripted
 policy. `python -m pytest tests/test_mujoco_panda.py -q` verifies preserved
 mechanics, canonical reset/export, scratch-data IK and native physics stepping.
 
+### Palm-first grasp and stacking rollout
+
+Install this checkout with `pip install -e '.[panda,render,dev]'`, then run:
+
+```bash
+orca-sim-stack --palm-first --stack --video --check
+# Headless validation (no rendering dependencies needed):
+python -m orca_sim.demos.panda_grasp --palm-first --stack --check
+# Interactive viewer on macOS, from the checkout:
+mjpython scripts/mujoco_panda_grasp.py --palm-first --stack --viewer --check
+```
+
+The installed CLI and source wrapper run the same implementation. Outputs go
+to `renders/mujoco_panda_grasp/` by default; use `--output-dir` to keep runs
+separate. The report contains source/control hashes, contact depths, support
+contacts, lift height and post-release stack stability; `--check` exits
+unsuccessfully if the physical checks fail.
+
+The controller keeps the saved home hand orientation during the approach,
+rests the open palm on the cube, then wraps the fingers, lifts, transfers,
+releases and retreats. Closure requires 0.6 seconds of continuous top contact
+with filtered palm load between 0.2 and 5 N. A bounded vertical adjustment
+targets a gentle 2 N rest load; this is **not** a force cap during the grasp.
+If no stable contact appears by 15.5 seconds, the demo stops with the fingers
+open instead of attempting a blind grasp.
+
+All motion uses native position-actuator commands and `mj_step`. IK runs on
+scratch data: there are no cube attachments, external applied forces or
+live-state teleports. This is a deterministic demonstration for the saved
+layout, not a general-purpose grasp planner. The same environment also
+accepts arbitrary 24-joint actions from an IK/retargeting pipeline.
+
+The controller tests are `tests/test_palm_grasp.py`,
+`tests/test_panda_stacking.py` and `tests/test_panda_demo.py`. The last includes
+full-physics grasp, sideways-approach and palm-first stacking regressions.
+
 ### Native v2 hand contact fixes
 
 Both native v2 hand MJCFs now collide with their ten finger-skin geometries.
