@@ -1,4 +1,8 @@
 # Byte-compiled / optimized / DLL files
+# Local rollout outputs and timestamped editor backups.
+renders/
+src/orca_sim/assets/mujoco/*.bak
+
 __pycache__/
 *.py[codz]
 *$py.class
