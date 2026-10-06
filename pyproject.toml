@@ -33,6 +33,7 @@ dev = [
 
 [project.scripts]
 orca-sim-stack = "orca_sim.demos.panda_grasp:main"
+orca-sim-pose-editor = "orca_sim.pose_editor:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -51,6 +52,7 @@ orca_sim = [
   "*.xml",
   "scenes/*.xml",
   "assets/mujoco/*.json",
+  "assets/mujoco/*.html",
   "scenes/*/*.xml",
   "assets/mjcf/*.xml",
   "assets/mjcf/*/*.xml",

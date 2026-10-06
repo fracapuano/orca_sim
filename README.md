@@ -114,6 +114,37 @@ The controller tests are `tests/test_palm_grasp.py`,
 `tests/test_panda_stacking.py` and `tests/test_panda_demo.py`. The last includes
 full-physics grasp, sideways-approach and palm-first stacking regressions.
 
+### Interactive layout and hand-rest editors
+
+With the `panda,render` extras installed, run one editor at a time and open
+the loopback URL printed in the terminal:
+
+```bash
+orca-sim-pose-editor --mode layout   # Base X/Y and yaw; arm/hand home locked.
+orca-sim-pose-editor --mode hand     # 17 hand joints; arm/base locked.
+orca-sim-pose-editor --mode objects  # Cube forward/left offsets from the robot.
+```
+
+The chosen arm home remains locked in every mode. These are paused
+MuJoCo previews, not teleoperation: sliders update kinematics and collisions,
+and no simulation time advances. Moving the static base recompiles the model
+so its collision structures match the visible geometry. Cube heights stay on
+the tabletop and the target marker follows the blue cube.
+
+Save rejects detected intersecting contacts, writes atomically, and makes a
+timestamped backup before overwriting an existing JSON. By default it updates
+the package's `home_pose.json` or `tabletop_layout.json`; commit those files
+to preserve the new defaults. Restart a rollout after saving to load changes.
+For a read-only installation or a separate experiment, use
+`--save-path /absolute/path/pose.json` (or `layout.json` in objects mode).
+Pass that file to the environment as `start_pose=` or `object_layout=`.
+The demo CLI accepts `--start-pose`; its cube layout uses the package default.
+
+The local server binds only to `127.0.0.1`, checks request origin and a
+session token, and does not expose arbitrary filesystem or command access.
+Tests in `test_pose_editor.py` and `test_cube_editor.py` cover saved/reloaded
+physics, locked fields, coordinate transforms and collision rejection.
+
 ### Native v2 hand contact fixes
 
 Both native v2 hand MJCFs now collide with their ten finger-skin geometries.
