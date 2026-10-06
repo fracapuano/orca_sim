@@ -218,3 +218,4 @@ __marimo__/
 *.lock
 *.DS_Store
 renders/
+src/orca_sim/assets/mujoco/*.bak

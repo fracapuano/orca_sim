@@ -3,36 +3,56 @@
 </p>
 
 
-`orca_sim` provides simulation environments for the ORCA hand, including a
-bimanual ORCA-Panda manipulation scene in Genesis.
+This is Francesco Capuano's independently maintained fork of `orca_sim`.
+The contact fixes and validated native MuJoCo Panda cube-stacking scene live
+on [`fracapuano/genesis-sim`](https://github.com/fracapuano/orca_sim/tree/fracapuano/genesis-sim).
+Despite the historical branch name, the latest palm-first stacking demo uses
+**MuJoCo, not Genesis**. The earlier Genesis environment remains optional.
 You can start building your ORCA hand today at [orcahand.com](https://www.orcahand.com/).
 
 ## Install
 
-We recommend using python 3.11 inside of a virtual environment.
-You can create a virtual environment using `uv` ([how to install uv](https://docs.astral.sh/uv/getting-started/installation/)):
+Use a fresh Python 3.11 environment. Clone this fork's working branch to get
+the corrected assets, saved robot/cube configuration, examples and tests:
 
 ```bash
-uv venv orca --python 3.11
-source orca/bin/activate
-uv pip install orca_sim
+git clone --branch fracapuano/genesis-sim https://github.com/fracapuano/orca_sim.git
+cd orca_sim
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[panda,render,dev]' 'mujoco==3.11.0'
+
+python scripts/mujoco_panda_grasp.py --palm-first --stack --video --check \
+  --output-dir renders/palm_first_stacking
+# Interactive viewer on macOS (on Linux use python with --viewer):
+.venv/bin/mjpython scripts/mujoco_panda_grasp.py --palm-first --stack --viewer --check
 ```
 
-Alternatively, you can use `conda` ([how to install conda](https://www.anaconda.com/docs/getting-started/miniconda/install)):
+MuJoCo 3.11.0 is the physics version used for the validated rollout; `orca_arm`
+is pinned to its tested Git commit by the `panda` extra. Genesis is not installed
+by this command. The Python import remains `orca_sim`; the fork uses the local
+version suffix `+fracapuano.1` to distinguish this snapshot from upstream.
+
+**Do not use plain `pip install orca_sim` to obtain these changes:** that installs
+the upstream PyPI distribution. This fork is distributed through Git for now;
+its inherited upstream PyPI publishing workflow is guarded against fork runs.
+For reproducibility, record `git rev-parse HEAD` and install that exact revision
+instead of following a moving branch. The rollout script currently requires
+the source checkout; the environment and assets are included in the wheel.
+
+The default home, hand rest and cube layout are committed JSON files under
+`src/orca_sim/assets/mujoco`. Editor saves modify those files; commit subsequent
+edits to preserve them. Videos, render outputs and timestamped editor backups
+stay local and are not included in Git. The committed scripts reproduce them.
+
+Run the independent hand-contact and native stacking regressions with:
+
 ```bash
-conda create -n orca python=3.11 -y
-conda activate orca
-python -m pip install orca_sim
+python -m pytest tests/test_standalone_hand_grasp.py \
+  tests/test_standalone_squeeze_stress.py tests/test_progressive_grip.py \
+  tests/test_mujoco_panda.py tests/test_palm_grasp.py \
+  tests/test_panda_stacking.py tests/test_cube_editor.py tests/test_pose_editor.py -q
 ```
-As we are continuously iterating on `orca_sim`, you can fetch the latest `main` building this package from source, so to be in the loop with the latest developments.
-
-```bash
-git clone https://github.com/orcahand/orca_sim
-cd orca_sim && uv pip install -e .
-```
-
-> [!WARNING] 
-We are still iterating (a lot!) on this package. If you need stability, consider sticking to the Pypi package (`pip install orca_sim`).
 
 ## Getting started
 

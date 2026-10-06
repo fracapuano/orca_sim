@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orca_sim"
-version = "0.1.0"
+version = "0.1.0+fracapuano.1"
 description = "ORCA hand simulation environments using Gymnasium, MuJoCo, and Genesis."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,9 @@ dependencies = [
   "mujoco>=3.1",
   "numpy>=1.26",
 ]
+
+[project.urls]
+Repository = "https://github.com/fracapuano/orca_sim"
 
 [project.optional-dependencies]
 panda = [
