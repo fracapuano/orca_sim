@@ -18,6 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+panda = [
+  "mujoco>=3.3",
+  "orca_arm @ git+https://github.com/fracapuano/orca_arm.git@d92e47106d282edde6230170aa6e70429a5dccea",
+]
 dev = [
   "pytest>=8",
 ]
@@ -37,6 +41,8 @@ where = ["src"]
 [tool.setuptools.package-data]
 orca_sim = [
   "*.xml",
+  "scenes/*.xml",
+  "assets/mujoco/*.json",
   "scenes/*/*.xml",
   "assets/mjcf/*.xml",
   "assets/mjcf/*/*.xml",

@@ -35,6 +35,35 @@ We are still iterating (a lot!) on this package. If you need stability, consider
 
 ## Getting started
 
+### Native Panda assembly and canonical home
+
+Install `python -m pip install -e '.[panda,dev]' 'mujoco==3.11.0'` to use
+`OrcaPandaCubeStackingMujoco`. The builder combines the pinned bare Panda
+MJCF from `orca_arm` with the corrected native v2 right-hand MJCF from this
+package; it does not use `orca_arm`'s preassembled OrcaPanda or any URDF.
+
+The canonical `assets/mujoco/home_pose.json` preserves the selected seven arm
+angles, seventeen hand angles, base `(0, -0.224, 0.325)` m and 90-degree yaw.
+The builder scopes the source defaults, retains native gains and limits,
+and writes the same pose into a reset keyframe. A shared 1.10 × 0.80 m bench
+has its top at 0.325 m. The native task uses a 1 ms timestep. No external
+holding force, grasp equality or object attachment is added.
+
+```python
+from orca_sim import OrcaPandaCubeStackingMujoco
+
+env = OrcaPandaCubeStackingMujoco()
+obs, info = env.reset()
+print(env.actuator_joints)  # Seven arm + seventeen hand position targets.
+obs, reward, terminated, truncated, info = env.step(env.data.ctrl.copy())
+env.close()
+```
+
+The action order is actuator order, not `qpos` order (which also contains the
+free cubes). Custom IK/retargeting can supply these actions without a scripted
+policy. `python -m pytest tests/test_mujoco_panda.py -q` verifies preserved
+mechanics, canonical reset/export, scratch-data IK and native physics stepping.
+
 ### Native v2 hand contact fixes
 
 Both native v2 hand MJCFs now collide with their ten finger-skin geometries.
