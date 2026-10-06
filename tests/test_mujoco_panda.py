@@ -106,12 +106,25 @@ def test_original_stacking_scene_objects_preserved(env):
     for model in (source, env.model):
         for name in ("red_cube", "blue_cube"):
             half = model.geom(name + "_geom").size
-            np.testing.assert_allclose(half, [0.035] * 3)
+            np.testing.assert_allclose(half, [0.035 * 0.8] * 3)
             mass = model.body(name).mass[0]
-            assert mass == pytest.approx(0.06)
+            assert mass == pytest.approx(0.06 * 0.8**3)
             np.testing.assert_allclose(
                 model.body(name).inertia, [mass * (2 * half[0]) ** 2 / 6] * 3
             )
+
+
+def test_smaller_cubes_start_on_table_and_lift_reward_uses_new_height(env):
+    m, d = env.model, env.data
+    top = d.geom("tabletop").xpos[2] + m.geom("tabletop").size[2]
+    for name in ("red_cube", "blue_cube"):
+        assert d.body(name).xpos[2] == pytest.approx(0.353)
+        assert d.body(name).xpos[2] - m.geom(name + "_geom").size[2] == pytest.approx(
+            top
+        )
+    _, reward, _, _, info = env.step(d.ctrl.copy())
+    assert reward == pytest.approx(0, abs=1e-5)
+    assert info["lift_height_m"] == pytest.approx(0, abs=1e-5)
 
 
 def test_shared_table_and_user_chosen_home(env):
