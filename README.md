@@ -4,34 +4,94 @@
 
 
 `orca_sim` provides simulation environments for the ORCA hand.
-You can start building your ORCA hand today at [orcahand.com](https://www.orcahand.com/).
+This is Francesco Capuano's maintained fork, with native MuJoCo hand-contact
+fixes and a Panda palm-first cube-stacking task. It is not a Genesis port.
+The original ORCA hand project is at [orcahand.com](https://www.orcahand.com/).
 
 ## Install
 
-We recommend using python 3.11 inside of a virtual environment.
-You can create a virtual environment using `uv` ([how to install uv](https://docs.astral.sh/uv/getting-started/installation/)):
+Use Python 3.11 in a fresh virtual environment. During review, the full stack
+lives on `fracapuano/mujoco-06-fork-packaging`; `main` has not been changed.
+Install this Git checkout, **not** the upstream PyPI release:
 
 ```bash
-uv venv orca --python 3.11
-source orca/bin/activate
-uv pip install orca_sim
+git clone --branch fracapuano/mujoco-06-fork-packaging https://github.com/fracapuano/orca_sim.git
+cd orca_sim
+uv venv .venv --python 3.11
+source .venv/bin/activate
+uv pip install -e '.[panda,render,dev]' -c requirements/mujoco-validation.txt
 ```
 
-Alternatively, you can use `conda` ([how to install conda](https://www.anaconda.com/docs/getting-started/miniconda/install)):
+Or, after cloning, use standard Python/pip:
 ```bash
-conda create -n orca python=3.11 -y
-conda activate orca
-python -m pip install orca_sim
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[panda,render,dev]' -c requirements/mujoco-validation.txt
 ```
-As we are continuously iterating on `orca_sim`, you can fetch the latest `main` building this package from source, so to be in the loop with the latest developments.
+The import/package name remains `orca_sim`; do not install the upstream and
+fork distributions into the same environment. The local version identifier
+`0.1.0+fracapuano.2` distinguishes this cleaned review stack from the earlier
+mixed experimental branch. No release has been published to PyPI.
+
+Extras: `panda` installs the pinned bare Panda MJCF/meshes from `orca_arm`;
+`render` adds video/image dependencies; `dev` adds pytest. For hand-only use,
+install `-e '.[dev]'` with the same constraints. No Genesis, Torch, or
+`orca_core` dependency is needed. Interactive rendering requires a desktop
+graphics context; headless physics does not.
+
+The validation constraints record the tested Python dependencies rather than
+claiming identical contacts on every supported MuJoCo version. The Panda
+asset dependency is fixed at `d92e47106d282edde6230170aa6e70429a5dccea`.
+Fork publishing is disabled by a repository-identity guard in the inherited
+PyPI workflow. Merging these review branches does not publish a package.
+
+## Review stack and ownership
+
+Each branch below adds one commit on the preceding branch. Review the PRs
+bottom-up in this order; the final branch contains the complete native task.
+
+| Layer | Branch after `fracapuano/` | What belongs here |
+| --- | --- | --- |
+| 1 | `mujoco-01-hand-contacts` | Native left/right v2 MJCF collision masks, contact/solver response, isolated squeeze regression; **no limit/gain changes**. |
+| 2 | `mujoco-02-panda-home` | Native MJCF composition, Gym action interface, canonical arm/hand/base home, shared bench and baseline task fixture. |
+| 3 | `mujoco-03-cube-layout` | Saved cube/target positions, 20% smaller cubes and density-preserving mass/inertia. |
+| 4 | `mujoco-04-palm-first-stacking` | Palm-contact gate, wrap/lift/stack controller, installed rollout command and dynamic regressions. |
+| 5 | `mujoco-05-scene-editors` | Local base/hand/cube sliders, collision-aware saves and reload tests. |
+| 6 | `mujoco-06-fork-packaging` | Fork install/review guide, validation constraints, version and publication safeguard. |
+
+The first PR targets this fork's `main`; each later PR targets its immediate
+predecessor, keeping its diff focused. Merge bottom-up using merge commits
+to preserve ancestry, then retarget the next PR to `main`. Squashing or
+rebasing a lower layer requires rebasing its descendants before continuing.
+Do not delete a base branch while another open PR still targets it.
+
+All changes in this stack belong in **`orca_sim`**. `orca_arm` supplies
+unchanged, pinned Panda assets; its preassembled OrcaPanda MJCF/URDF is not
+used by this native task. `orca_core` is not modified or required. Genesis
+environments, conversion code, abandoned force adapters and old experiment
+scripts are deliberately excluded. The previous `fracapuano/genesis-sim`
+branch remains an unchanged archive, not the base of these PRs.
+
+### Validate or reproduce the demonstration
 
 ```bash
-git clone https://github.com/orcahand/orca_sim
-cd orca_sim && uv pip install -e .
+python -m pytest -q
+orca-sim-stack --palm-first --stack --check --output-dir renders/validation
+orca-sim-stack --palm-first --stack --video --check --output-dir renders/video
 ```
 
-> [!WARNING] 
-We are still iterating (a lot!) on this package. If you need stability, consider sticking to the Pypi package (`pip install orca_sim`).
+Tests include both native hands, the saved scene/home, editor round trips
+and full dynamic rollouts. The isolated contact test compares identical
+progressively increasing closure commands with legacy versus corrected
+contact response, keeping skins enabled in both to isolate solver stiffness.
+A separate test verifies the previously disabled skin masks. It is not a
+claim that every object and arbitrary teleoperation trajectory is stable.
+
+The saved home and cube layout are version-controlled JSON, not browser
+state. Meshes, MJCF includes, scene XML, JSON defaults, editor HTML and the
+rollout implementation are package data/code in the wheel. For a non-editable
+installation use an explicit editor `--save-path`, then pass that saved file
+to the environment. Do not depend on writable `site-packages`.
 
 ## Getting started
 
