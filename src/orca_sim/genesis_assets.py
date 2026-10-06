@@ -136,6 +136,10 @@ def _materialize_native_body_defaults(
     hand_density: float,
 ) -> tuple[set[str], int]:
     """Make the standalone hand defaults explicit and add skin collision geoms."""
+    # Genesis has its separately validated contact settings below. This native
+    # MuJoCo class is not copied into the generated Panda document.
+    if tower.get("childclass") in ("orca_left_contact", "orca_right_contact"):
+        tower.attrib.pop("childclass")
     body_names = {
         body.get("name", "") for body in tower.iter("body") if body.get("name")
     }
@@ -169,6 +173,15 @@ def _materialize_native_body_defaults(
             if material in material_names:
                 geom.set("material", material_names[material])
 
+            # Native MuJoCo renders and collides the same skin geom. Genesis
+            # uses separate visual/collision channels: retain the authored skin
+            # as a zero-mass visual and append its collision copy below. This
+            # also supports older source assets whose skins were visual-only.
+            mesh_name = geom.get("mesh", "")
+            if "Skin" in mesh_name:
+                geom.set("contype", "0")
+                geom.set("conaffinity", "0")
+
             is_visual = geom.get("contype") == "0" and geom.get("conaffinity") == "0"
             if is_visual:
                 geom.set("density", "0")
@@ -180,7 +193,6 @@ def _materialize_native_body_defaults(
                 geom.set("solref", "0.001 1")
                 geom.set("solimp", "0.99 0.999 0.001")
 
-            mesh_name = geom.get("mesh", "")
             if is_visual and "Skin" in mesh_name:
                 collision = copy.deepcopy(geom)
                 collision.set(

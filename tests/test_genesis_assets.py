@@ -8,9 +8,11 @@ import numpy as np
 import pytest
 
 from orca_sim.genesis_assets import (
+    _materialize_native_body_defaults,
     prepare_bimanual_orcapanda_mjcf,
     resolve_panda_nohand_mjcf,
 )
+from orca_sim.versions import PACKAGE_ROOT
 from orca_sim.genesis_env import (
     CUBE_CONTACT_SKIN,
     CUBE_MJCF_PATH,
@@ -90,6 +92,29 @@ def test_prepare_mjcf_rejects_non_panda_asset(tmp_path: Path) -> None:
     source.write_text("<mujoco><worldbody/></mujoco>", encoding="utf-8")
     with pytest.raises(ValueError, match="no-hand Panda MJCF"):
         prepare_bimanual_orcapanda_mjcf(source, tmp_path / "output.xml")
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_native_skin_fix_preserves_genesis_materialized_model(side: str) -> None:
+    path = PACKAGE_ROOT / "models" / "v2" / "mjcf" / f"orcahand_{side}_body.xml"
+    fixed = ET.parse(path).getroot()
+    original = ET.fromstring(ET.tostring(fixed))
+    for geom in original.iter("geom"):
+        if "Skin" in geom.get("mesh", ""):
+            geom.set("contype", "0")
+            geom.set("conaffinity", "0")
+    for body in (original, fixed):
+        _, count = _materialize_native_body_defaults(
+            body,
+            material_names={
+                "white": "orca_white",
+                "black": "orca_black",
+                "invisible": "orca_invisible",
+            },
+            hand_density=650,
+        )
+        assert count == 10
+    assert ET.tostring(original) == ET.tostring(fixed)
 
 
 def test_workbench_asset_is_grounded_and_preserves_task_surface() -> None:
