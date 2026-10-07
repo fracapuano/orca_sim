@@ -150,6 +150,55 @@ rejected, and no gains, torque limits, contact masks or hand meshes are
 weakened to make the motion pass. Custom homes/layouts can be supplied via
 `start_pose=` and `object_layout=` (a dict or JSON path).
 
+#### Independent collision-audited grasp/lift tests
+
+The right hand can lift red from the saved layout. The saved blue cube is
+still at x=0, about 1.09 m horizontally from the left base; the left
+palm-first IK path does **not** reach it. Do not treat the earlier free-space
+motion demo as proof of a grasp from that layout.
+
+An explicit **test fixture**, `tests/fixtures/bimanual_reach_layout.json`,
+moves only blue to `(0.700, 0.201, 0.353)` m. It is not a new scene default:
+the saved single-arm/bimanual homes and object layout remain unchanged.
+From this checkout:
+
+```bash
+# Original saved layout, right hand only:
+python -m orca_sim.demos.bimanual_grasp --side right --video --check
+# Same proposed reachable layout for BOTH independent episodes:
+python -m orca_sim.demos.bimanual_grasp --side both --video --check \
+  --object-layout tests/fixtures/bimanual_reach_layout.json \
+  --output-dir renders/bimanual_reach_test
+```
+
+Each 28-second episode resets the same scene, approaches with the selected
+arm, rests its palm on its cube, wraps the fingers, lifts about 18 cm and
+checks the last five seconds of holding. The other robot keeps its original
+home **commands** and remains dynamic, not welded or frozen. Right targets
+red; left targets blue. This is sequential independent validation, not a
+simultaneous/coordinated grasp or stacking policy.
+
+The policy folds the distal thumb before descending, curls distal finger
+joints before proximal joints, delays thumb opposition, and keeps the index
+partly open to avoid thumb/index contact. The native left hand needs a
+different lateral grasp offset. These are controller targets only: no
+MJCF mesh, contact mask, gain, torque cap, cube friction or mass is changed.
+
+Every 1 ms physics step is audited. Only the active hand's contacts with its
+assigned cube and cube/table support are allowed. Robot/table, inter-robot,
+self-contact and wrong-cube contact abort the run, including force-bearing
+contacts at positive collision margins. Reports also check loaded
+thumb/finger contacts, sustained lift, other-cube movement, penetration,
+native force/joint limits, numerical warnings and absence of external forces
+or equality attachments. Videos have a close-up inset; `report.json`,
+`trace.json` and the exact generated `scene.xml` are saved per side.
+These checks establish the recorded trajectories, not safety for arbitrary
+teleoperation commands. Run the physics regressions with:
+
+```bash
+python -m pytest tests/test_bimanual_grasp.py -q
+```
+
 ### Saved cube layout and dimensions
 
 The native Panda task loads `assets/mujoco/tabletop_layout.json`: red cube
