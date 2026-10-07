@@ -210,6 +210,43 @@ Outputs are in `renders/bimanual_cameras/`: `cameras.png`, the three named PNGs,
 the exported MJCF, `report.json`, and (with `--video`) `cameras.mp4`.
 This camera demo preserves the saved cube layout and is **not** a grasp demo.
 
+#### Coordinated red-on-blue stacking demo
+
+```bash
+python -m orca_sim.demos.bimanual_stack --video --check
+# After reinstalling the package, the equivalent entry point is:
+orca-sim-bimanual-stack --video --check
+```
+
+This is one continuously stepped MuJoCo episode: the **right arm picks red**,
+the **left arm picks blue**, the left places blue on the **X** and clears the
+workspace, then the right stacks red **on blue** and releases it. The final
+stack must stand without either hand touching it for five seconds.
+
+The demo explicitly loads `assets/mujoco/bimanual_stack_layout.json`: red at
+`(0.30, 0.201)`, blue at `(0.70, 0.201)`, and the X at their midpoint
+`(0.50, 0.201)` metres. The X is a non-colliding visual marker on the tabletop.
+This opt-in layout does **not** overwrite the saved homes, the default cube
+layout, or the single-arm stacking scene. Arm identities still follow their
+unchanged bases, not the native handedness of the swapped hand assemblies.
+
+Only the existing 48 joint-position actuators are driven. Cubes remain free
+dynamic bodies: no welds, object-state writes, external forces, contact-mask
+changes or gain/torque-limit changes. Palm contact gates finger closure;
+measured cube pose guides transfer/placement. Shared center access is
+serialized, and contact auditing at every 1 ms physics step rejects robot
+self-contact, inter-robot contact, wrong-hand/cube contact and robot/table
+contact. This is a scripted controller for this layout, not a general-purpose
+collision-avoidance planner.
+
+`renders/bimanual_stack/` contains `rollout.mp4` (with `--video`), exported
+`scene.xml`, `report.json`, state/control `trace.json`, and diagnostic stage
+checkpoints. The command starts from home; it never resumes those checkpoints.
+`--check` exits unsuccessfully unless the released stack passes the physical
+support, position, velocity and contact checks. The video uses the closer
+`front` camera with an orbit-view contact-detail inset; both wrist cameras
+are also present in the exported model.
+
 #### Independent collision-audited grasp/lift tests
 
 The right arm's attached hand targets red in the saved layout. The saved blue cube is

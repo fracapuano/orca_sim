@@ -173,7 +173,11 @@ def _add_cameras(root, hands):
         )
 
 
-def scene_xml(panda_path=None, start_pose=None, object_layout=None):
+def scene_xml(
+    panda_path=None, start_pose=None, object_layout=None, target_marker="disk"
+):
+    if target_marker not in ("disk", "x"):
+        raise ValueError("target_marker must be 'disk' or 'x'")
     home = start_configuration(start_pose)
     objects = tabletop_configuration(object_layout)
     # Reuse the tested single-arm composition and its source/default handling.
@@ -193,6 +197,22 @@ def scene_xml(panda_path=None, start_pose=None, object_layout=None):
         root.find(f"./worldbody/body[@name='{name}']").set(
             "pos", " ".join(map(str, pos))
         )
+    if target_marker == "x":
+        marker = root.find("./worldbody/body[@name='stack_target']")
+        marker.remove(marker.find("geom"))
+        marker.find("site").set("rgba", "0 0 0 0")
+        for sign in (-1, 1):
+            ET.SubElement(
+                marker,
+                "geom",
+                name=f"stack_target_x_{'a' if sign < 0 else 'b'}",
+                type="box",
+                size="0.065 0.004 0.0003",
+                quat=f"0.9238795325 0 0 {sign * 0.3826834324}",
+                rgba="0.035 0.035 0.035 1",
+                contype="0",
+                conaffinity="0",
+            )
 
     right = root.find("./worldbody/body[@name='link0']")
     right_attachment = right.find(".//body[@name='attachment']")
@@ -347,6 +367,7 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
         frame_skip=5,
         start_pose=None,
         object_layout=None,
+        target_marker="disk",
     ):
         if render_mode not in (None, "rgb_array", "human"):
             raise ValueError("Unsupported render mode")
@@ -354,7 +375,9 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
             raise ValueError("frame_skip must be a positive integer")
         self.start_pose = start_configuration(start_pose)
         self.object_layout = tabletop_configuration(object_layout)
-        self.xml = scene_xml(panda_path, self.start_pose, self.object_layout)
+        self.xml = scene_xml(
+            panda_path, self.start_pose, self.object_layout, target_marker
+        )
         self.model = mujoco.MjModel.from_xml_string(self.xml)
         self.data = mujoco.MjData(self.model)
         self.frame_skip, self.render_mode = frame_skip, render_mode

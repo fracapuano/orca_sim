@@ -38,6 +38,7 @@ dev = [
 orca-sim-stack = "orca_sim.demos.panda_grasp:main"
 orca-sim-pose-editor = "orca_sim.pose_editor:main"
 orca-sim-bimanual = "orca_sim.demos.bimanual:main"
+orca-sim-bimanual-stack = "orca_sim.demos.bimanual_stack:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
