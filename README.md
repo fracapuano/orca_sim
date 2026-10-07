@@ -95,6 +95,61 @@ to the environment. Do not depend on writable `site-packages`.
 
 ## Getting started
 
+### Local bimanual MuJoCo setup
+
+The local `fracapuano/mujoco-bimanual` branch adds
+`OrcaBimanualPandaCubeStackingMujoco`: two native Panda arms, the corrected
+native right **and left** ORCA hands, and the same 5.6 cm cubes. It does not
+convert URDFs or use the older preassembled bimanual model.
+
+The right robot's home and the cube positions remain exactly as saved in the
+single-arm task. The second base is at `(1.0, -0.224, 0.325)` m; both bases
+have 90-degree yaw. A mirrored left-arm posture points its hand inward.
+The shared bench is widened to 1.80 × 0.80 m, at the unchanged 0.325 m height.
+Its separate `assets/mujoco/bimanual_home_pose.json` records both homes;
+the single-arm JSON and scene remain untouched. The 1 m base separation
+provides clearance for the full fingertip meshes, not just joint centres.
+
+From this checkout with the `panda,render` extras installed:
+
+```bash
+orca-sim-bimanual --video --check
+# On macOS: orbit/zoom the live scene; close the viewer to stop.
+mjpython scripts/mujoco_bimanual.py --viewer --hold
+# Exercise both arms and hands in the viewer:
+mjpython scripts/mujoco_bimanual.py --viewer --check
+```
+
+The 12-second motion demo steps MuJoCo while moving each arm through an
+independent Cartesian IK path, closing/opening both hands, and returning
+home. This validates the bimanual assembly/control interface, **not a
+coordinated two-hand grasp or stacking policy**. The existing single-arm
+stacking command still selects its original environment. The old layout
+sliders also still edit only the single-arm task.
+
+```python
+from orca_sim import OrcaBimanualPandaCubeStackingMujoco
+
+env = OrcaBimanualPandaCubeStackingMujoco()
+env.reset()
+# Action order: right Panda 7 + right hand 17, left Panda 7 + left hand 17.
+action = env.data.ctrl.copy()
+left = env.robots["left"]
+target = env.data.site(left.hand_site).xpos + [0, 0.03, 0.02]
+action[left.actuator_indices[:7]] = env.solve_ik("left", target)
+obs, reward, terminated, truncated, info = env.step(action)
+env.close()
+```
+
+`env.robots[side]` exposes actuator indices, joint names, arm/hand qpos
+addresses, and the hand-frame site. `env.side_action(side, targets)` replaces
+one robot's 24 targets while preserving the other's command. IK operates
+only on scratch data; it is not a collision-aware trajectory planner.
+Inter-robot collisions remain enabled, intersecting initial layouts are
+rejected, and no gains, torque limits, contact masks or hand meshes are
+weakened to make the motion pass. Custom homes/layouts can be supplied via
+`start_pose=` and `object_layout=` (a dict or JSON path).
+
 ### Saved cube layout and dimensions
 
 The native Panda task loads `assets/mujoco/tabletop_layout.json`: red cube

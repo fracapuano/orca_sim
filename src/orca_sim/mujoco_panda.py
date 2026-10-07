@@ -382,14 +382,22 @@ class OrcaPandaCubeStackingMujoco(gym.Env):
         self._renderer = self._viewer = None
 
 
-def inverse_kinematics(env, position, rotation=TOWER_ROTATION, seed=None):
+def inverse_kinematics(
+    env,
+    position,
+    rotation=TOWER_ROTATION,
+    seed=None,
+    *,
+    site_name="hand_frame",
+    collision_prefix="link",
+):
     """Damped 6D Jacobian IK on scratch data; never teleports the simulation."""
     m = env.model
     d = mujoco.MjData(m)
     d.qpos[:] = env.data.qpos
     if seed is not None:
         d.qpos[env.arm_qadr] = seed
-    site = m.site("hand_frame").id
+    site = m.site(site_name).id
     jp, jr = np.zeros((3, m.nv)), np.zeros((3, m.nv))
     target_quat = np.empty(4)
     mujoco.mju_mat2Quat(target_quat, np.asarray(rotation).ravel())
@@ -433,13 +441,20 @@ def inverse_kinematics(env, position, rotation=TOWER_ROTATION, seed=None):
             size=(24, 7),
         ):
             try:
-                solution = inverse_kinematics(env, position, rotation, seed=candidate)
+                solution = inverse_kinematics(
+                    env,
+                    position,
+                    rotation,
+                    seed=candidate,
+                    site_name=site_name,
+                    collision_prefix=collision_prefix,
+                )
                 d.qpos[env.arm_qadr] = solution
                 mujoco.mj_forward(m, d)
                 if not any(
                     c.dist < -0.001
                     and any(
-                        m.body(m.geom_bodyid[g]).name.startswith("link")
+                        m.body(m.geom_bodyid[g]).name.startswith(collision_prefix)
                         for g in (c.geom1, c.geom2)
                     )
                     for c in d.contact
