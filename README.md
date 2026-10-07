@@ -161,6 +161,55 @@ rejected, and no gains, torque limits, contact masks or hand meshes are
 weakened to make the motion pass. Custom homes/layouts can be supplied via
 `start_pose=` and `object_layout=` (a dict or JSON path).
 
+#### Three-camera observations
+
+The bimanual MJCF contains exactly three named RGB cameras:
+
+- `front`: the shared elevated view **from behind both robots**, toward the table.
+- `right_wrist`: under the right arm's palm (currently the native **left** hand).
+- `left_wrist`: under the left arm's palm (currently the native **right** hand).
+
+Both wrist cameras attach to the native carpal body, so they follow the arm
+**and** the hand's wrist joint. Their optical centres sit under the palm heel,
+behind the grasp contact patch, looking toward the fingers and 30 degrees
+down toward the work surface (80-degree vertical field of view). These are
+ideal virtual cameras, not additional physical camera housings: they add no
+mass, collision geometry or change to the hand's contacts. Objects/fingers
+can naturally occlude the view during a grasp; no meshes are hidden.
+
+```python
+from orca_sim import OrcaBimanualPandaCubeStackingMujoco
+
+env = OrcaBimanualPandaCubeStackingMujoco()
+try:
+    env.reset()
+    env.step(env.data.ctrl.copy())  # Replace with your 48 IK/retargeter targets.
+    rgb = env.render_cameras()     # Same physics instant; does not step.
+    # rgb["front"], rgb["right_wrist"], rgb["left_wrist"]: uint8 (480, 640, 3)
+    wrist = env.render_camera("right_wrist", width=1280, height=720)
+finally:
+    env.close()
+```
+
+Rendering needs working OpenGL. `render_cameras()` works independently of
+`render_mode`; the default state-vector observation/action interface is
+unchanged. The three independent image arrays share one reused offscreen
+renderer. Render sizes may be up to 1280×720. Do not call `step()` concurrently
+with capture. The existing `render()` free-view camera remains available for
+orbiting/debugging; it is not a fourth model camera. In the MuJoCo viewer,
+select `front`, `right_wrist` or `left_wrist` from the camera selector.
+
+```bash
+# Save three raw home PNGs and a labelled side-by-side preview:
+python -m orca_sim.demos.bimanual_cameras
+# Step the existing 12-second arm/hand motion and record synchronized views:
+python -m orca_sim.demos.bimanual_cameras --video
+```
+
+Outputs are in `renders/bimanual_cameras/`: `cameras.png`, the three named PNGs,
+the exported MJCF, `report.json`, and (with `--video`) `cameras.mp4`.
+This camera demo preserves the saved cube layout and is **not** a grasp demo.
+
 #### Independent collision-audited grasp/lift tests
 
 The right arm's attached hand targets red in the saved layout. The saved blue cube is

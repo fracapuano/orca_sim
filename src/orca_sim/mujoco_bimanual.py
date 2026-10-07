@@ -22,6 +22,7 @@ from orca_sim import mujoco_panda as single
 SIDES = ("right", "left")
 # Arm identities/homes stay fixed; only the native hands exchange mounts.
 HAND_FOR_ARM = {"right": "left", "left": "right"}
+CAMERA_NAMES = ("front", "right_wrist", "left_wrist")
 HOME_POSE = single.PACKAGE / "assets/mujoco/bimanual_home_pose.json"
 TABLE_CENTER = np.array([0.5, 0.0, 0.30])
 TABLE_HALF_SIZE = np.array([0.9, 0.40, 0.025])
@@ -123,6 +124,53 @@ def _rename(tree, names):
         for attr in ("name", "joint", "body1", "body2", "site"):
             if node.get(attr) in names:
                 node.set(attr, names[node.get(attr)])
+
+
+def _camera_xyaxes(direction, up):
+    """MuJoCo cameras look along -Z; image right/up are local +X/+Y."""
+    z = -np.asarray(direction, dtype=float)
+    z /= np.linalg.norm(z)
+    x = np.cross(up, z)
+    x /= np.linalg.norm(x)
+    return " ".join(map(str, np.concatenate((x, np.cross(z, x)))))
+
+
+def _add_cameras(root, hands):
+    # Replace the inherited single-hand topdown/angled cameras. The bimanual
+    # MJCF has exactly three task cameras; the UI's free camera is not a sensor.
+    for parent in root.iter():
+        for camera in parent.findall("camera"):
+            parent.remove(camera)
+    # "front" is the shared task camera, physically BEHIND the robot bases.
+    eye = np.array([0.5, -1.9, 1.65])
+    ET.SubElement(
+        root.find("worldbody"),
+        "camera",
+        name="front",
+        mode="fixed",
+        pos=" ".join(map(str, eye)),
+        xyaxes=_camera_xyaxes(np.array([0.5, 0.025, 0.46]) - eye, [0, 0, 1]),
+        fovy="43",
+    )
+    for arm in SIDES:
+        hand = hands[HAND_FOR_ARM[arm]]
+        # Native carpal frame: +Y points out of the palm, +Z toward fingers.
+        # Place the optical centre under the heel of the palm, behind the
+        # contact patch, not inside the palm mesh or the grasped cube.
+        palm = next(
+            b
+            for b in hand.iter("body")
+            if b.find("joint[@name='" + HAND_FOR_ARM[arm] + "_wrist']") is not None
+        )
+        ET.SubElement(
+            palm,
+            "camera",
+            name=arm + "_wrist",
+            mode="fixed",
+            pos="0.005 0.0418770780631086 -0.0568000006705525",
+            xyaxes=_camera_xyaxes([0, 0.5, np.sqrt(0.75)], [0, -1, 0]),
+            fovy="80",
+        )
 
 
 def scene_xml(panda_path=None, start_pose=None, object_layout=None):
@@ -247,6 +295,7 @@ def scene_xml(panda_path=None, start_pose=None, object_layout=None):
     # No inter-arm/hand exclusions: robots must physically collide if commanded
     # into each other. Nominal motion is checked separately, not collision-masked.
     root.findall("worldbody")[-1].append(left)
+    _add_cameras(root, hands)
 
     positions = {
         f"{side}_panda_joint{i + 1}": q
@@ -287,6 +336,8 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
     Shares the single-arm native stepping/rendering implementation. Homes and
     assembly are independent. IK is kinematic, not a collision-aware planner.
     """
+
+    camera_names = CAMERA_NAMES
 
     def __init__(
         self,
@@ -359,6 +410,7 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
         ):
             raise ValueError("Starting angles exceed native joint limits")
         self._renderer = self._viewer = None
+        self._camera_renderer = None
         self.camera = mujoco.MjvCamera()
         self.camera.lookat[:] = [0.5, 0.04, 0.61]
         self.camera.distance, self.camera.azimuth, self.camera.elevation = 2.55, 95, -22
@@ -369,6 +421,57 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
             > 0.0001
         ):
             raise ValueError("Starting robots intersect each other or the table")
+
+    def render_camera(self, name, *, width=640, height=480):
+        """Independent RGB uint8 image from a named camera; never steps physics.
+
+        Available regardless of render_mode. The ordinary render()/interactive
+        orbit camera is unchanged. A single offscreen context serves all three
+        cameras. Call close() to release it. Requires the render extra/OpenGL.
+        """
+        if name not in self.camera_names:
+            raise ValueError(
+                f"Unknown camera {name!r}; choose from {self.camera_names}"
+            )
+        if any(isinstance(v, bool) or not isinstance(v, int) for v in (width, height)):
+            raise ValueError("Camera width/height must be positive integers")
+        if not (
+            0 < width <= self.model.vis.global_.offwidth
+            and 0 < height <= self.model.vis.global_.offheight
+        ):
+            raise ValueError(
+                "Camera size exceeds the 1280x720 offscreen buffer or is nonpositive"
+            )
+        renderer = self._camera_renderer
+        if renderer is not None and (renderer.width, renderer.height) != (
+            width,
+            height,
+        ):
+            renderer.close()
+            self._camera_renderer = renderer = None
+        if renderer is None:
+            self._camera_renderer = renderer = mujoco.Renderer(
+                self.model, width=width, height=height
+            )
+        renderer.update_scene(self.data, camera=name)
+        return renderer.render().copy()
+
+    def render_cameras(self, *, width=640, height=480):
+        """Three synchronized RGB images from the current state (no stepping).
+
+        Names identify arms, not native hand handedness. As with step()/render(),
+        callers must not mutate the environment concurrently during capture.
+        """
+        return {
+            name: self.render_camera(name, width=width, height=height)
+            for name in self.camera_names
+        }
+
+    def close(self):
+        if self._camera_renderer is not None:
+            self._camera_renderer.close()
+            self._camera_renderer = None
+        super().close()
 
     def contact_metrics(self):
         """Report unwanted inter-robot/table contacts, without masking any pairs."""
