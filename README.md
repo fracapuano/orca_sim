@@ -105,6 +105,12 @@ convert URDFs or use the older preassembled bimanual model.
 The right robot's home and the cube positions remain exactly as saved in the
 single-arm task. The second base is at `(1.0, -0.224, 0.325)` m; both bases
 have 90-degree yaw. A mirrored left-arm posture points its hand inward.
+The native hands are **swapped between those unchanged arms**: the arm
+called `right` (base x=0) carries the native **left** hand, and the arm called
+`left` (base x=1) carries the native **right** hand. This puts the thumbs on
+the requested opposite side without moving/reorienting either Panda or
+changing the mounting transforms. Native hand joint/body/mesh names retain
+their true handedness. `env.robots[side].hand_side` exposes that assignment.
 The shared bench is widened to 1.80 × 0.80 m, at the unchanged 0.325 m height.
 Its separate `assets/mujoco/bimanual_home_pose.json` records both homes;
 the single-arm JSON and scene remain untouched. The 1 m base separation
@@ -132,7 +138,7 @@ from orca_sim import OrcaBimanualPandaCubeStackingMujoco
 
 env = OrcaBimanualPandaCubeStackingMujoco()
 env.reset()
-# Action order: right Panda 7 + right hand 17, left Panda 7 + left hand 17.
+# Action order: right Panda 7 + LEFT hand 17, left Panda 7 + RIGHT hand 17.
 action = env.data.ctrl.copy()
 left = env.robots["left"]
 target = env.data.site(left.hand_site).xpos + [0, 0.03, 0.02]
@@ -145,6 +151,11 @@ env.close()
 addresses, and the hand-frame site. `env.side_action(side, targets)` replaces
 one robot's 24 targets while preserving the other's command. IK operates
 only on scratch data; it is not a collision-aware trajectory planner.
+Here `side` and the existing `right_hand_frame`/`left_hand_frame` site names
+identify the **arm**, not the native hand's handedness. The version-1 home
+JSON keeps its arm-scoped hand-target keys; the builder maps their joint
+suffixes to the mounted hand without changing the saved rest angles.
+Collision ownership follows the kinematic tree, not hand-name prefixes.
 Inter-robot collisions remain enabled, intersecting initial layouts are
 rejected, and no gains, torque limits, contact masks or hand meshes are
 weakened to make the motion pass. Custom homes/layouts can be supplied via
@@ -152,7 +163,7 @@ weakened to make the motion pass. Custom homes/layouts can be supplied via
 
 #### Independent collision-audited grasp/lift tests
 
-The right hand can lift red from the saved layout. The saved blue cube is
+The right arm's attached hand targets red in the saved layout. The saved blue cube is
 still at x=0, about 1.09 m horizontally from the left base; the left
 palm-first IK path does **not** reach it. Do not treat the earlier free-space
 motion demo as proof of a grasp from that layout.
@@ -174,14 +185,17 @@ python -m orca_sim.demos.bimanual_grasp --side both --video --check \
 Each 28-second episode resets the same scene, approaches with the selected
 arm, rests its palm on its cube, wraps the fingers, lifts about 18 cm and
 checks the last five seconds of holding. The other robot keeps its original
-home **commands** and remains dynamic, not welded or frozen. Right targets
-red; left targets blue. This is sequential independent validation, not a
+home **commands** and remains dynamic, not welded or frozen. The `--side`
+option selects an **arm**: right-arm/native-left-hand targets red;
+left-arm/native-right-hand targets blue. This is sequential independent validation, not a
 simultaneous/coordinated grasp or stacking policy.
 
 The policy folds the distal thumb before descending, curls distal finger
 joints before proximal joints, delays thumb opposition, and keeps the index
 partly open to avoid thumb/index contact. The native left hand needs a
-different lateral grasp offset. These are controller targets only: no
+different lateral grasp offset. With the hands exchanged, the approach's
+small tilt is mirrored for the opposite handedness; it blends from the
+unchanged saved arm home. These are controller targets only: no
 MJCF mesh, contact mask, gain, torque cap, cube friction or mass is changed.
 
 Every 1 ms physics step is audited. Only the active hand's contacts with its

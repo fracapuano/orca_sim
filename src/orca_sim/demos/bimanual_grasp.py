@@ -1,4 +1,4 @@
-"""Independently grasp/lift red with the right hand and blue with the left.
+"""Independently grasp/lift red with the right ARM and blue with the left ARM.
 
 Both robots remain dynamic. The inactive robot receives its unchanged home
 targets. All collision masks/exclusions and native actuator limits are retained.
@@ -25,6 +25,7 @@ class ContactAudit:
 
     def __init__(self, env, side, cube):
         self.env, self.side, self.cube = env, side, cube
+        self.hand_side = env.robots[side].hand_side if hasattr(env, "robots") else side
         m = env.model
         self.cube_id = m.geom(cube + "_geom").id
         self.roles, self.digits = [], []
@@ -37,6 +38,11 @@ class ContactAudit:
             for s in SIDES:
                 if name.startswith(s + "_"):
                     role = s + ("_arm" if name.startswith(s + "_panda_") else "_hand")
+            if hasattr(env, "geom_robots") and env.geom_robots[g] is not None:
+                owner = env.geom_robots[g]
+                role = owner + (
+                    "_arm" if name.startswith(owner + "_panda_") else "_hand"
+                )
             self.roles.append(role)
             digits = set()
             while body:
@@ -44,11 +50,13 @@ class ContactAudit:
                     m.body_jntadr[body], m.body_jntadr[body] + m.body_jntnum[body]
                 ):
                     joint = m.joint(j).name
-                    if joint.startswith(side + "_") and "-" in joint:
+                    if joint.startswith(self.hand_side + "_") and "-" in joint:
                         digits.add(joint.split("_")[-1].split("-")[0])
                 body = int(m.body_parentid[body])
             self.digits.append(digits)
-        self.palm_mesh = f"{side}_{'R' if side == 'right' else 'L'}-Carpals"
+        self.palm_mesh = (
+            f"{self.hand_side}_{'R' if self.hand_side == 'right' else 'L'}-Carpals"
+        )
 
     def inspect(self):
         m, d = self.env.model, self.env.data
@@ -112,11 +120,12 @@ class PalmLift:
     def __init__(self, env, side, cube, *, yaw_degrees=0, offset=None, waypoints=()):
         self.env, self.side, self.cube = env, side, cube
         self.robot = env.robots[side]
+        self.hand_side = self.robot.hand_side
         self.home = env.data.ctrl.copy()
         self.indices = self.robot.actuator_indices
         self.home_side = self.home[self.indices]
         self.joint_index = {
-            name.removeprefix(side + "_"): i
+            name.removeprefix(self.hand_side + "_"): i
             for i, name in enumerate(self.robot.actuator_joints)
         }
         self.palm = PalmFirstGrasp(env.model.opt.timestep)
@@ -126,6 +135,11 @@ class PalmLift:
             env.data.site(self.robot.hand_site).xmat.reshape(3, 3).copy()
         )
         yaw = np.deg2rad(yaw_degrees)
+        # Swapping handedness reverses the lateral palm geometry. Mirror the
+        # calibrated approach's small tilt as well; the saved home stays exact
+        # and the approach smoothly blends from it. With these mirrored homes
+        # this is the opposite native hand's validated orientation yawed 180°.
+        grasp_rotation = np.diag([1, -1, 1]) @ self.home_rotation @ np.diag([-1, 1, 1])
         self.rotation = (
             np.array(
                 [
@@ -134,13 +148,13 @@ class PalmLift:
                     [0, 0, 1],
                 ]
             )
-            @ self.home_rotation
+            @ grasp_rotation
         )
         # Native left/right meshes reflect about local x=-0.01, not x=0.
         offset = np.array(
             offset
             if offset is not None
-            else [0.01 if side == "right" else -0.03, 0.15, -0.048]
+            else [0.01 if self.hand_side == "right" else -0.03, 0.15, -0.048]
         )
         if (
             offset.shape != (3,)
@@ -393,7 +407,7 @@ def run(
                 font = ImageFont.load_default(size=22)
                 draw.text(
                     (16, 10),
-                    f"MUJOCO | {side.upper()} HAND / {cube.upper()} | {phase} | t={d.time:.1f}s",
+                    f"MUJOCO | {side.upper()} ARM / {env.robots[side].hand_side.upper()} HAND | {cube.upper()} | {phase} | t={d.time:.1f}s",
                     font=font,
                 )
                 draw.text(
@@ -426,9 +440,11 @@ def run(
             timestep_s=float(m.opt.timestep),
             yaw_degrees=yaw_degrees,
             start_pose=env.start_pose,
+            hand_assignment=env.hand_assignment,
             collision_checks=checks,
             skin_probe_interval_s=0.01,
             grasp_offset_m=None if controller is None else controller.offset.tolist(),
+            grasp_rotation=None if controller is None else controller.rotation.tolist(),
             object_layout=env.object_layout,
             minimum_hold_lift_m=minimum_lift,
             hold_validation_seconds=5.0,

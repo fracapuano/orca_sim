@@ -20,6 +20,8 @@ from gymnasium import spaces
 from orca_sim import mujoco_panda as single
 
 SIDES = ("right", "left")
+# Arm identities/homes stay fixed; only the native hands exchange mounts.
+HAND_FOR_ARM = {"right": "left", "left": "right"}
 HOME_POSE = single.PACKAGE / "assets/mujoco/bimanual_home_pose.json"
 TABLE_CENTER = np.array([0.5, 0.0, 0.30])
 TABLE_HALF_SIZE = np.array([0.9, 0.40, 0.025])
@@ -212,6 +214,36 @@ def scene_xml(panda_path=None, start_pose=None, object_layout=None):
         _rename(c, left_map)
         right_contacts.append(c)
     right_contacts.extend(copy.deepcopy(list(native.find("contact"))))
+
+    # Exchange complete native hand assemblies, not Panda bases or arm poses.
+    # Site names and 24-target action blocks continue to identify the ARM;
+    # native hand body/joint/mesh names continue to identify handedness.
+    attachments = {"right": right_attachment, "left": left_attachment}
+    hands = {s: a.find(f"body[@name='{s}_tower']") for s, a in attachments.items()}
+    for side in SIDES:
+        attachments[side].remove(hands[side])
+    for side in SIDES:
+        hand_side = HAND_FOR_ARM[side]
+        hand = hands[hand_side]
+        hand.find(f"site[@name='{hand_side}_hand_frame']").set(
+            "name", side + "_hand_frame"
+        )
+        attachments[side].append(hand)
+    original_actuators = list(actuator)
+    for a in original_actuators:
+        actuator.remove(a)
+    for side in SIDES:
+        actuator.extend(
+            a for a in original_actuators if a.get("joint").startswith(side + "_panda_")
+        )
+        hand_side = HAND_FOR_ARM[side]
+        actuator.extend(
+            a
+            for a in original_actuators
+            if a.get("joint").startswith(hand_side + "_")
+            and not a.get("joint").startswith(hand_side + "_panda_")
+        )
+
     # No inter-arm/hand exclusions: robots must physically collide if commanded
     # into each other. Nominal motion is checked separately, not collision-masked.
     root.findall("worldbody")[-1].append(left)
@@ -222,7 +254,10 @@ def scene_xml(panda_path=None, start_pose=None, object_layout=None):
         for i, q in enumerate(home[side]["arm_qpos"])
     }
     for side in SIDES:
-        positions.update(home[side]["hand_qpos"])
+        positions.update(
+            (HAND_FOR_ARM[side] + "_" + name.removeprefix(side + "_"), angle)
+            for name, angle in home[side]["hand_qpos"].items()
+        )
     qpos = []
     for name in ("red_cube", "blue_cube"):
         qpos.extend([*objects[name], 1, 0, 0, 0])
@@ -247,7 +282,7 @@ def scene_xml(panda_path=None, start_pose=None, object_layout=None):
 
 
 class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
-    """48 position targets: right arm/hand (24), then left arm/hand (24).
+    """48 targets: right arm + native left hand, left arm + native right hand.
 
     Shares the single-arm native stepping/rendering implementation. Homes and
     assembly are independent. IK is kinematic, not a collision-aware planner.
@@ -286,6 +321,7 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
             -np.inf, np.inf, (self.model.nq + self.model.nv,), dtype=np.float64
         )
         self.robots = {}
+        self.hand_assignment = HAND_FOR_ARM.copy()
         for side, offset in (("right", 0), ("left", 24)):
             indices = np.arange(offset, offset + 24)
             self.robots[side] = SimpleNamespace(
@@ -295,6 +331,7 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
                 arm_qadr=self.qadr[indices[:7]],
                 arm_dadr=self.dadr[indices[:7]],
                 hand_qadr=self.qadr[indices[7:]],
+                hand_side=self.hand_assignment[side],
                 hand_site=side + "_hand_frame",
                 actuator_joints=self.actuator_joints[offset : offset + 24],
                 action_space=spaces.Box(
@@ -303,6 +340,19 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
                     dtype=np.float64,
                 ),
             )
+        # Ownership follows the kinematic tree, not the native hand's prefix.
+        self.body_robots = []
+        for body in range(self.model.nbody):
+            owner = None
+            ancestor = body
+            while ancestor:
+                name = self.model.body(ancestor).name
+                owner = next((s for s in SIDES if name == s + "_panda_link0"), None)
+                if owner is not None:
+                    break
+                ancestor = int(self.model.body_parentid[ancestor])
+            self.body_robots.append(owner)
+        self.geom_robots = tuple(self.body_robots[b] for b in self.model.geom_bodyid)
         home_ctrl = self.model.key("orcapanda_home").ctrl
         if np.any(home_ctrl < self.action_space.low) or np.any(
             home_ctrl > self.action_space.high
@@ -329,9 +379,7 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
                 self.model.body(self.model.geom_bodyid[g]).name
                 for g in (c.geom1, c.geom2)
             ]
-            sides = {
-                side for side in SIDES if any(n.startswith(side + "_") for n in names)
-            }
+            sides = {self.geom_robots[g] for g in (c.geom1, c.geom2)} - {None}
             if len(sides) == 2:
                 inter = max(inter, -float(c.dist))
                 count += int(c.dist < 0)
@@ -372,6 +420,9 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
             seed,
             site_name=robot.hand_site,
             collision_prefix=side + "_",
+            collision_body_ids={
+                i for i, owner in enumerate(self.body_robots) if owner == side
+            },
         )
 
     def side_action(self, side, targets, *, action=None):

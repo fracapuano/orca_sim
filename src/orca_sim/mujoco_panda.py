@@ -390,6 +390,7 @@ def inverse_kinematics(
     *,
     site_name="hand_frame",
     collision_prefix="link",
+    collision_body_ids=None,
 ):
     """Damped 6D Jacobian IK on scratch data; never teleports the simulation."""
     m = env.model
@@ -448,13 +449,20 @@ def inverse_kinematics(
                     seed=candidate,
                     site_name=site_name,
                     collision_prefix=collision_prefix,
+                    collision_body_ids=collision_body_ids,
                 )
                 d.qpos[env.arm_qadr] = solution
                 mujoco.mj_forward(m, d)
                 if not any(
                     c.dist < -0.001
                     and any(
-                        m.body(m.geom_bodyid[g]).name.startswith(collision_prefix)
+                        (
+                            int(m.geom_bodyid[g]) in collision_body_ids
+                            if collision_body_ids is not None
+                            else m.body(m.geom_bodyid[g]).name.startswith(
+                                collision_prefix
+                            )
+                        )
                         for g in (c.geom1, c.geom2)
                     )
                     for c in d.contact

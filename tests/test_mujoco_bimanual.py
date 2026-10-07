@@ -74,6 +74,68 @@ def test_homes_face_one_another_with_correct_handed_assets(env):
     )
 
 
+@pytest.mark.parametrize("side,hand", (("right", "left"), ("left", "right")))
+def test_only_native_hands_exchange_mounts_and_ownership(env, side, hand):
+    from orca_sim.demos.bimanual_grasp import ContactAudit
+
+    m, d = env.model, env.data
+    robot = env.robots[side]
+    assert robot.hand_side == hand
+    assert m.site(robot.hand_site).bodyid == m.body(hand + "_tower").id
+    assert all(name.startswith(hand + "_") for name in robot.actuator_joints[7:])
+    assert all(name.startswith(side + "_panda_") for name in robot.actuator_joints[:7])
+    np.testing.assert_array_equal(
+        d.qpos[robot.arm_qadr], env.start_pose[side]["arm_qpos"]
+    )
+    np.testing.assert_array_equal(
+        d.body(side + "_panda_link0").xpos, env.start_pose[side]["base_pos"]
+    )
+    frame = d.site(robot.hand_site)
+    thumb_side = frame.xmat.reshape(3, 3)[:, 0] * (1 if hand == "left" else -1)
+    toward_base = d.body(side + "_panda_link0").xpos[:2] - frame.xpos[:2]
+    toward_base /= np.linalg.norm(toward_base)
+    assert thumb_side[:2] @ toward_base > 0.8
+    audit = ContactAudit(env, side, "red_cube")
+    assert audit.hand_side == hand
+    assert audit.palm_mesh == hand + ("_L-Carpals" if hand == "left" else "_R-Carpals")
+    for geom in skin_geoms(m):
+        native_side = m.body(m.geom_bodyid[geom]).name.split("_")[0]
+        owner = (
+            side if native_side == hand else ("left" if side == "right" else "right")
+        )
+        assert env.geom_robots[geom] == owner
+        assert audit.roles[geom] == owner + "_hand"
+
+
+def test_saved_hand_targets_remain_with_their_arm_after_swap():
+    home = bim.start_configuration()
+    home["right"]["hand_qpos"]["right_i-mcp"] = 0.2
+    home["left"]["hand_qpos"]["left_i-mcp"] = 0.4
+    env = bim.OrcaBimanualPandaCubeStackingMujoco(start_pose=home)
+    try:
+        assert env.data.joint("left_i-mcp").qpos[0] == 0.2
+        assert env.data.joint("right_i-mcp").qpos[0] == 0.4
+    finally:
+        env.close()
+
+
+def test_swapped_hands_hold_saved_home_without_unintended_contacts():
+    from orca_sim.demos.bimanual_grasp import ContactAudit
+
+    env = bim.OrcaBimanualPandaCubeStackingMujoco(frame_skip=1)
+    try:
+        targets = env.data.ctrl.copy()
+        audit = ContactAudit(env, "right", "red_cube")
+        for _ in range(3000):
+            env.step(targets)
+            assert not audit.inspect()["forbidden"]
+        assert not any(w.number for w in env.data.warning)
+        assert not np.any(env.data.xfrc_applied)
+        assert not np.any(env.data.qfrc_applied)
+    finally:
+        env.close()
+
+
 @pytest.mark.parametrize("side", bim.SIDES)
 def test_each_native_hand_preserves_mechanics_and_corrected_contacts(env, side):
     source = mujoco.MjModel.from_xml_path(
