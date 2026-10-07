@@ -142,7 +142,7 @@ def _add_cameras(root, hands):
         for camera in parent.findall("camera"):
             parent.remove(camera)
     # "front" is the shared task camera, physically BEHIND the robot bases.
-    eye = np.array([0.5, -1.9, 1.65])
+    eye = np.array([0.5, -1.5, 1.4])
     ET.SubElement(
         root.find("worldbody"),
         "camera",
