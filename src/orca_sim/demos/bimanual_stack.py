@@ -1,4 +1,4 @@
-"""Right picks red, left places blue on the X, right stacks red on blue."""
+"""Both hands pick together, then left places blue and right stacks red on it."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from orca_sim.mujoco_bimanual import OrcaBimanualPandaCubeStackingMujoco
 from orca_sim.panda_stacking import stack_metrics
 
 
-def run(output_dir, *, video=False, duration=100.0):
-    if not np.isfinite(duration) or duration < 94:
+def run(output_dir, *, video=False, duration=80.0):
+    if not np.isfinite(duration) or duration < 71:
         raise ValueError(
-            "Allow at least 94 seconds for both pickups, placements and settling"
+            "Allow at least 71 seconds for parallel pickups, placements and settling"
         )
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -34,6 +34,7 @@ def run(output_dir, *, video=False, duration=100.0):
     error = None
     max_depth = max_skin = max_limit = max_torque = 0.0
     max_lift = dict(red_cube=0.0, blue_cube=0.0)
+    pickup_lift_start = dict.fromkeys(max_lift)
     force_free = True
     checks = 0
     try:
@@ -93,6 +94,8 @@ def run(output_dir, *, video=False, duration=100.0):
                 max_lift[name] = max(
                     max_lift[name], float(d.body(name).xpos[2] - 0.353)
                 )
+                if pickup_lift_start[name] is None and d.body(name).xpos[2] > 0.383:
+                    pickup_lift_start[name] = float(d.time)
             if step % 10 == 0:
                 max_skin = max(
                     max_skin, *(skin_vertex_depth(m, d, g, skins) for g in cubes)
@@ -117,24 +120,31 @@ def run(output_dir, *, video=False, duration=100.0):
                 )
                 # An orbit-camera inset makes contacts readable; it is a debug
                 # view, not a fourth named observation camera.
-                active = (
-                    "blue_cube" if controller.phase.startswith("LEFT") else "red_cube"
-                )
-                env.camera.lookat[:] = d.body(active).xpos + [0, 0, 0.02]
-                env.camera.distance = 0.48
-                env.camera.azimuth = 120 if active == "blue_cube" else 60
-                env.camera.elevation = -18
-                frame.paste(
-                    Image.fromarray(env.render()).resize((448, 252)), (816, 452)
-                )
                 draw = ImageDraw.Draw(frame)
-                draw.rectangle((816, 452, 1264, 477), fill=(20, 24, 31))
-                draw.text(
-                    (824, 456),
-                    "CONTACT DETAIL (orbit view)",
-                    font=ImageFont.load_default(size=16),
-                    fill="white",
+                views = (
+                    (("right", "red_cube", 16), ("left", "blue_cube", 816))
+                    if controller.phase == "BOTH PICK CUBES"
+                    else (
+                        (("left", "blue_cube", 816),)
+                        if controller.phase.startswith("LEFT")
+                        else (("right", "red_cube", 816),)
+                    )
                 )
+                for side, active, x in views:
+                    env.camera.lookat[:] = d.body(active).xpos + [0, 0, 0.02]
+                    env.camera.distance = 0.48
+                    env.camera.azimuth = 120 if active == "blue_cube" else 60
+                    env.camera.elevation = -18
+                    frame.paste(
+                        Image.fromarray(env.render()).resize((448, 252)), (x, 452)
+                    )
+                    draw.rectangle((x, 452, x + 448, 477), fill=(20, 24, 31))
+                    draw.text(
+                        (x + 8, 456),
+                        f"{side.upper()} CONTACT DETAIL (orbit view)",
+                        font=ImageFont.load_default(size=16),
+                        fill="white",
+                    )
                 draw.rectangle((0, 0, 1280, 65), fill=(20, 24, 31))
                 draw.text(
                     (16, 10),
@@ -183,6 +193,7 @@ def run(output_dir, *, video=False, duration=100.0):
             events=controller.events if controller else [],
             task="bimanual_pick_place_stack",
             max_lift_m=max_lift,
+            pickup_lift_start_s=pickup_lift_start,
             base_target_error_m=xy,
             **final,
             collision_checks=checks,

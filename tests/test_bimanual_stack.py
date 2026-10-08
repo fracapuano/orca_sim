@@ -10,28 +10,59 @@ from orca_sim.mujoco_bimanual import (
 from test_bimanual_grasp import contact_fixture
 
 
-def test_left_thumb_opposition_is_delayed_without_changing_final_targets():
+@pytest.mark.parametrize("side,offset", [("right", 0), ("left", 24)])
+def test_pickup_action_uses_unmodified_native_grasp_targets(side, offset):
     from orca_sim.bimanual_stacking import BimanualStack
 
     controller = BimanualStack.__new__(BimanualStack)
     controller.env = SimpleNamespace(
-        data=SimpleNamespace(time=13),
-        robots={"left": SimpleNamespace(actuator_indices=np.arange(24, 48))},
+        robots={side: SimpleNamespace(actuator_indices=np.arange(offset, offset + 24))},
     )
-    controller.phase, controller.start_time = "LEFT PICK BLUE", 0
-    controller.action = np.full(48, 0.2)
-    controller.controller = SimpleNamespace(
-        palm=SimpleNamespace(close_time=11),
-        joint_index={"t-abd": 20, "t-cmc": 21},
-        command=lambda _: (np.full(48, 0.4), "WRAP FINGERS"),
+    picker = SimpleNamespace(
+        command=lambda _: (np.arange(48, dtype=float), "WRAP FINGERS"),
     )
-    action, _ = controller.command()
-    np.testing.assert_array_equal(action[:24], np.full(24, 0.2))
-    assert action[44] > 0.8 and action[45] < -0.4
-    assert action[43] == action[46] == 0.4
-    controller.env.data.time = 20
-    action, _ = controller.command()
-    assert action[44] == 0 and action[45] == 0.55
+    controller.pickers = {side: picker}
+    action, phase = controller.pickup_action(side, 13)
+    np.testing.assert_array_equal(action, np.arange(offset, offset + 24))
+    assert phase == "WRAP FINGERS"
+
+
+def test_parallel_pickups_share_one_clock_and_merge_only_their_own_targets():
+    from orca_sim.bimanual_stacking import BimanualStack
+
+    c = BimanualStack.__new__(BimanualStack)
+    c.env = SimpleNamespace(
+        data=SimpleNamespace(time=2.5),
+        robots={
+            s: SimpleNamespace(actuator_indices=np.arange(i, i + 24))
+            for s, i in (("right", 0), ("left", 24))
+        },
+    )
+    c.phase, c.start_time, c.action = "BOTH PICK CUBES", 0.0, np.zeros(48)
+    calls = []
+
+    def command(side, age):
+        calls.append((side, age))
+        # The unused side deliberately contains invalid targets: those must
+        # never overwrite the other hand's independent command.
+        return (
+            np.r_[np.full(24, 0.1), np.full(24, 999)]
+            if side == "right"
+            else np.r_[np.full(24, -999), np.full(24, 0.2)]
+        ), "APPROACH"
+
+    c.pickers = {
+        side: SimpleNamespace(
+            palm=SimpleNamespace(close_time=None),
+            command=lambda age, side=side: command(side, age),
+        )
+        for side in ("right", "left")
+    }
+    action, phase = c.command()
+    assert calls == [("right", 2.5), ("left", 2.5)]
+    np.testing.assert_array_equal(action[:24], np.full(24, 0.1))
+    np.testing.assert_array_equal(action[24:], np.full(24, 0.2))
+    assert "RIGHT: APPROACH" in phase and "LEFT: APPROACH" in phase
 
 
 def test_planning_does_not_mutate_live_state_and_unlifted_placement_is_rejected():
@@ -52,27 +83,36 @@ def test_planning_does_not_mutate_live_state_and_unlifted_placement_is_rejected(
         e.close()
 
 
-@pytest.mark.parametrize("phase", ["RIGHT PICK RED", "LEFT PICK BLUE"])
-def test_failed_pick_cannot_advance_to_placement(phase):
+@pytest.mark.parametrize("failed_side", ["right", "left"])
+def test_either_failed_pick_blocks_both_arms_from_placement(failed_side):
     from orca_sim.bimanual_stacking import BimanualStack
 
     c = BimanualStack.__new__(BimanualStack)
     c.env = SimpleNamespace(
         data=SimpleNamespace(
-            time=23, body=lambda _: SimpleNamespace(xpos=np.array([0.3, 0.2, 0.353]))
+            time=23, body=lambda _: SimpleNamespace(xpos=np.array([0.3, 0.2, 0.52]))
         ),
         robots={
             s: SimpleNamespace(actuator_indices=np.arange(i, i + 24))
             for s, i in (("right", 0), ("left", 24))
         },
     )
-    c.phase, c.start_time, c.action = phase, 0, np.zeros(48)
-    c.controller = SimpleNamespace(
-        command=lambda _: (np.zeros(48), "HOLD"),
-        palm=SimpleNamespace(close_time=None),
-        audit=SimpleNamespace(inspect=lambda: dict(hand_contacts=0)),
-    )
-    with pytest.raises(RuntimeError, match="grasp/lift not established"):
+    c.phase, c.start_time, c.action = "BOTH PICK CUBES", 0, np.zeros(48)
+    c.pickers = {
+        side: SimpleNamespace(
+            command=lambda _: (np.zeros(48), "HOLD"),
+            palm=SimpleNamespace(close_time=None),
+            audit=SimpleNamespace(
+                inspect=lambda side=side: dict(
+                    hand_contacts=0 if side == failed_side else 2
+                )
+            ),
+        )
+        for side in ("right", "left")
+    }
+    with pytest.raises(
+        RuntimeError, match=f"{failed_side}: grasp/lift not established"
+    ):
         c.command()
 
 
@@ -146,3 +186,12 @@ def test_continuous_bimanual_pick_place_stack(tmp_path):
     assert report["max_lift_m"]["red_cube"] > 0.15
     assert report["max_lift_m"]["blue_cube"] > 0.15
     assert report["external_forces_zero"] and report["equalities"] == 0
+    assert report["duration_s"] < 71
+    assert report["events"][0]["phase"] == "BOTH PICK CUBES"
+    assert (
+        abs(
+            report["pickup_lift_start_s"]["red_cube"]
+            - report["pickup_lift_start_s"]["blue_cube"]
+        )
+        < 1
+    )

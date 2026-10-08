@@ -218,10 +218,14 @@ python -m orca_sim.demos.bimanual_stack --video --check
 orca-sim-bimanual-stack --video --check
 ```
 
-This is one continuously stepped MuJoCo episode: the **right arm picks red**,
-the **left arm picks blue**, the left places blue on the **X** and clears the
-workspace, then the right stacks red **on blue** and releases it. The final
-stack must stand without either hand touching it for five seconds.
+This is one continuously stepped MuJoCo episode: the **right arm picks red
+while the left arm picks blue**, starting their approaches together. Each
+hand independently waits for palm contact before wrapping its fingers and
+lifting. Once both pickups are verified, the left places blue on the **X**
+and clears the workspace, then the right stacks red **on blue** and releases
+it. Center placement remains sequential to keep the arms clear of each other.
+The roughly 69-second demo ends with five seconds of stable stacking with
+both hands released. The report includes each cube's initial lift time.
 
 The demo explicitly loads `assets/mujoco/bimanual_stack_layout.json`: red at
 `(0.30, 0.201)`, blue at `(0.70, 0.201)`, and the X at their midpoint
@@ -244,7 +248,7 @@ collision-avoidance planner.
 checkpoints. The command starts from home; it never resumes those checkpoints.
 `--check` exits unsuccessfully unless the released stack passes the physical
 support, position, velocity and contact checks. The video uses the closer
-`front` camera with an orbit-view contact-detail inset; both wrist cameras
+`front` camera with orbit-view close-ups of both pickups; both wrist cameras
 are also present in the exported model.
 
 #### Independent collision-audited grasp/lift tests

@@ -202,20 +202,19 @@ class PlaceCube:
 
 
 class BimanualStack:
-    """Serialized shared-workspace access; inactive hands keep their targets."""
+    """Parallel pickups, followed by serialized access to the shared stack area."""
 
     def __init__(self, env):
         self.env = env
-        self.phase = "RIGHT PICK RED"
+        self.phase = "BOTH PICK CUBES"
         self.start_time = float(env.data.time)
-        # Calibrate both grasp orientations from the same saved home, before
-        # gravity/servo deflection during the other hand's turn. Execution is
-        # still fully dynamic and uses fresh palm contact feedback every step.
+        # Both plans start at the saved home and run on the same simulation
+        # clock. Each hand retains its own palm-contact gate and closure state.
         self.pickers = {
             side: PalmLift(env, side, cube)
             for side, cube in (("right", "red_cube"), ("left", "blue_cube"))
         }
-        self.controller = self.pickers["right"]
+        self.controller = None
         self.action = env.data.ctrl.copy()
         self.events = [dict(t=self.start_time, phase=self.phase)]
         self.done = False
@@ -225,40 +224,39 @@ class BimanualStack:
         self.events.append(dict(t=float(self.env.data.time), phase=phase))
         self.phase, self.start_time = phase, float(self.env.data.time)
 
+    def pickup_action(self, side, age):
+        """Extract only this arm's targets; never overwrite the other picker."""
+        picker = self.pickers[side]
+        action, detail = picker.command(age)
+        indices = self.env.robots[side].actuator_indices
+        # Use the independent grasp's original thumb schedule on both hands:
+        # opposition finishes before lifting. The sequential demo's extra
+        # left-thumb delay would sweep the tip toward the table during lift.
+        return action[indices], detail
+
     def command(self):
         e, d = self.env, self.env.data
         age = d.time - self.start_time
-        if self.phase in ("RIGHT PICK RED", "LEFT PICK BLUE"):
-            side = "right" if self.phase == "RIGHT PICK RED" else "left"
-            action, detail = self.controller.command(age)
-            indices = e.robots[side].actuator_indices
-            if side == "left" and self.controller.palm.close_time is not None:
-                # Give the middle finger time to wrap before thumb opposition;
-                # otherwise their tips can cross in this two-loaded-hand state.
-                # Final targets and all native gains/force limits are unchanged.
-                closure = smooth((age - self.controller.palm.close_time - 1.7) / 2)
-                for joint, target in (
-                    ("t-abd", 0.9 * (1 - closure)),
-                    ("t-cmc", -0.5 * (1 - closure) + 0.55 * closure),
-                ):
-                    action[indices[self.controller.joint_index[joint]]] = target
-            self.action[indices] = action[indices]
+        if self.phase == "BOTH PICK CUBES":
+            details = []
+            for side in ("right", "left"):
+                action, text = self.pickup_action(side, age)
+                self.action[e.robots[side].actuator_indices] = action
+                details.append(f"{side.upper()}: {text}")
+            detail = " | ".join(details)
             if age >= 23:
-                cube = "red_cube" if side == "right" else "blue_cube"
-                contact = self.controller.audit.inspect()
-                if (
-                    d.body(cube).xpos[2] < TABLE_HEIGHT + 0.16
-                    or contact["hand_contacts"] < 2
-                ):
-                    raise RuntimeError(f"{side}: grasp/lift not established")
-                if side == "right":
-                    self.transition("LEFT PICK BLUE")
-                    self.controller = self.pickers["left"]
-                else:
-                    self.transition("LEFT PLACE BLUE ON X")
-                    self.controller = PlaceCube(
-                        e, "left", "blue_cube", d.body("stack_target").xpos[:2]
-                    )
+                # Neither arm may enter the center until BOTH pickups pass.
+                for side, cube in (("right", "red_cube"), ("left", "blue_cube")):
+                    contact = self.pickers[side].audit.inspect()
+                    if (
+                        d.body(cube).xpos[2] < TABLE_HEIGHT + 0.16
+                        or contact["hand_contacts"] < 2
+                    ):
+                        raise RuntimeError(f"{side}: grasp/lift not established")
+                self.transition("LEFT PLACE BLUE ON X")
+                self.controller = PlaceCube(
+                    e, "left", "blue_cube", d.body("stack_target").xpos[:2]
+                )
         elif self.phase in ("LEFT PLACE BLUE ON X", "RIGHT STACK RED ON BLUE"):
             side = "left" if self.phase == "LEFT PLACE BLUE ON X" else "right"
             action, detail = self.controller.command()
