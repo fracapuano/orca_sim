@@ -305,6 +305,20 @@ python -m orca_sim.demos.bimanual_stack --seed 42 --check \
   --output-dir renders/randomized_stack_seed42
 ```
 
+To plot the regions on the actual table, without stepping or changing physics:
+
+```bash
+python -m orca_sim.demos.spawn_regions
+```
+
+This saves `renders/cube_spawn_regions/distributions.png`: a scene overview
+and top-down detail. Filled rectangles show the uniform cube-centre regions;
+grey outlines show one cube footprint. Cubes are hidden only in these debug
+renders so they cannot obscure the smaller regions. The X stays fixed and the
+ordinary training cameras are unaffected. Pass `--cube-spawn-regions` to plot
+a different configuration. These are spatial distributions, not grasp-success
+heatmaps.
+
 Each proposal draws both cubes independently and uniformly inside their
 rectangles. The environment rejects overlapping cubes, insufficient
 edge-to-edge XY clearance (`min_gap_m`), and intersections with robots/other
