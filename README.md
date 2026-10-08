@@ -251,6 +251,91 @@ support, position, velocity and contact checks. The video uses the closer
 `front` camera with orbit-view close-ups of both pickups; both wrist cameras
 are also present in the exported model.
 
+#### Shared cube-position distribution
+
+Cube sampling belongs to the **environment's `reset()`**, not the scripted
+controller. Both data collection and policy evaluation must construct the
+same environment configuration. Randomization is opt-in; omitting
+`cube_spawn_regions` preserves the existing fixed layout.
+
+The editable starting preset is
+`src/orca_sim/assets/mujoco/bimanual_cube_spawn_regions.json`:
+
+```json
+{
+  "version": 1,
+  "red_cube": {"x": [0.28, 0.32], "y": [0.181, 0.221]},
+  "blue_cube": {"x": [0.68, 0.72], "y": [0.181, 0.221]},
+  "min_gap_m": 0.02,
+  "max_attempts": 200
+}
+```
+
+Bounds are cube **centre coordinates in world/table XY, in metres**: these
+rectangles extend 2 cm each way from the demonstrated pickup locations.
+Increasing X goes from the right-arm base toward the left-arm base;
+increasing Y goes forward from the bases into the task workspace.
+Copy this JSON into your experiment configuration and change the bounds to
+choose other regions; a dictionary is also accepted. Equal lower/upper bounds
+fix an axis. Height remains 0.353 m, orientation remains upright with zero
+yaw, and the robot homes and stack target remain unchanged.
+
+```python
+from orca_sim.mujoco_bimanual import (
+    OrcaBimanualPandaCubeStackingMujoco, STACK_LAYOUT, CUBE_SPAWN_REGIONS,
+)
+
+# Use these SAME kwargs for expert collection and autonomous rollouts.
+env = OrcaBimanualPandaCubeStackingMujoco(
+    object_layout=STACK_LAYOUT,
+    cube_spawn_regions=CUBE_SPAWN_REGIONS,  # or your saved JSON path/dict
+    target_marker="x",
+    frame_skip=1,
+)
+obs, info = env.reset(seed=42)
+# Run your policy, or construct a NEW BimanualStack(env) after this reset.
+# env.reset() advances the RNG; env.reset(seed=42) repeats this initial state.
+```
+
+The stacking entry point delegates to exactly that reset sampler:
+
+```bash
+python -m orca_sim.demos.bimanual_stack --seed 42 --check \
+  --cube-spawn-regions src/orca_sim/assets/mujoco/bimanual_cube_spawn_regions.json \
+  --output-dir renders/randomized_stack_seed42
+```
+
+Each proposal draws both cubes independently and uniformly inside their
+rectangles. The environment rejects overlapping cubes, insufficient
+edge-to-edge XY clearance (`min_gap_m`), and intersections with robots/other
+obstacles. Out-of-table bounds are invalid. The accepted distribution is thus
+the joint uniform proposal **conditioned on valid initial placement**; when
+regions overlap it is not two independent uniform marginals. Exhausting
+`max_attempts` raises an error, never silently returns a fallback layout.
+There is no IK, grasp-success or policy-dependent rejection. Reachability
+and collision-free trajectories are separate controller concerns.
+
+`info` contains the sampled `object_layout`, normalized `cube_spawn_regions`,
+and `spawn_attempts`. The public `env.cube_spawn_regions` is a detached copy;
+pass a changed configuration to a new environment to change the distribution.
+The demo saves `reset.json`, the configuration/seed in `report.json`, and an
+exported `scene.xml` containing the actual sampled initial layout. Keep those
+alongside the simulator version and robot configuration for reproducibility.
+Sampling changes free-cube positions **only at reset**, without recompiling
+the model or changing contact settings, actuator limits or saved keyframes.
+
+This preset defines an evaluation distribution, **not a validated region of
+guaranteed grasp success**. The fixed-layout expert remains sensitive to
+position changes; randomized episodes can fail the existing collision audit.
+An initial MuJoCo 3.11.0 smoke check with seeds 0, 1 and 2 produced no fully
+passing episodes: seeds 0/1 stopped on thumb/middle-finger self-contact;
+seed 2 lifted both cubes and left a supported stack without unintended
+contacts, but its 13.3 mm stack offset exceeded the unchanged 12 mm limit.
+Three seeds are not a success-rate estimate; broader expert validation is
+still needed before collecting a training dataset.
+Keep failures in evaluation statistics. Filtering successful demonstrations
+changes the collected data distribution and must not redefine policy resets.
+
 #### Independent collision-audited grasp/lift tests
 
 The right arm's attached hand targets red in the saved layout. The saved blue cube is

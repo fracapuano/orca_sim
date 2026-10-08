@@ -18,12 +18,15 @@ import numpy as np
 from gymnasium import spaces
 
 from orca_sim import mujoco_panda as single
+from orca_sim.cube_sampling import CUBES, sample_xy, separated, spawn_configuration
 
 SIDES = ("right", "left")
 # Arm identities/homes stay fixed; only the native hands exchange mounts.
 HAND_FOR_ARM = {"right": "left", "left": "right"}
 CAMERA_NAMES = ("front", "right_wrist", "left_wrist")
 HOME_POSE = single.PACKAGE / "assets/mujoco/bimanual_home_pose.json"
+STACK_LAYOUT = single.PACKAGE / "assets/mujoco/bimanual_stack_layout.json"
+CUBE_SPAWN_REGIONS = single.PACKAGE / "assets/mujoco/bimanual_cube_spawn_regions.json"
 TABLE_CENTER = np.array([0.5, 0.0, 0.30])
 TABLE_HALF_SIZE = np.array([0.9, 0.40, 0.025])
 BASE_XY_LIMITS = ((-0.28, 1.28), (-0.28, 0.28))
@@ -368,6 +371,7 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
         start_pose=None,
         object_layout=None,
         target_marker="disk",
+        cube_spawn_regions=None,
     ):
         if render_mode not in (None, "rgb_array", "human"):
             raise ValueError("Unsupported render mode")
@@ -375,6 +379,10 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
             raise ValueError("frame_skip must be a positive integer")
         self.start_pose = start_configuration(start_pose)
         self.object_layout = tabletop_configuration(object_layout)
+        self._fixed_object_layout = copy.deepcopy(self.object_layout)
+        self._cube_spawn_regions = spawn_configuration(
+            cube_spawn_regions, OBJECT_XY_LIMITS
+        )
         self.xml = scene_xml(
             panda_path, self.start_pose, self.object_layout, target_marker
         )
@@ -444,6 +452,72 @@ class OrcaBimanualPandaCubeStackingMujoco(single.OrcaPandaCubeStackingMujoco):
             > 0.0001
         ):
             raise ValueError("Starting robots intersect each other or the table")
+
+    @property
+    def cube_spawn_regions(self):
+        """A detached, JSON-serializable copy of the reset distribution (or None)."""
+        return copy.deepcopy(self._cube_spawn_regions)
+
+    def reset(self, *, seed=None, options=None):
+        """Restore home and sample cube XY using Gymnasium's per-env RNG.
+
+        Same configuration and seed give the same reset for a scripted expert
+        or an autonomous policy. Repeated reset() calls advance the RNG stream.
+        Cube height/orientation, robot homes and stack target are not randomized.
+        No IK/controller-success rejection is applied to this distribution.
+        """
+        super().reset(seed=seed, options=options)
+        self.object_layout = copy.deepcopy(self._fixed_object_layout)
+        config = self._cube_spawn_regions
+        attempts = 0
+        if config is not None:
+            m, d = self.model, self.data
+            geoms = {name: m.geom(name + "_geom").id for name in CUBES}
+            cube_ids = set(geoms.values())
+            sizes = {name: m.geom_size[g] for name, g in geoms.items()}
+            addresses = {
+                name: m.jnt_qposadr[m.body_jntadr[m.body(name).id]] for name in CUBES
+            }
+            for attempts in range(1, config["max_attempts"] + 1):
+                xy = sample_xy(self.np_random, config)
+                if not separated(xy, sizes, config["min_gap_m"]):
+                    continue
+                for name in CUBES:
+                    adr = addresses[name]
+                    d.qpos[adr : adr + 2] = xy[name]
+                mujoco.mj_forward(m, d)
+                # Reject active contacts with robots/obstacles, including
+                # positive collision margins. The table is intended support.
+                invalid = False
+                for contact in d.contact:
+                    g1, g2 = int(contact.geom1), int(contact.geom2)
+                    if not cube_ids.intersection((g1, g2)):
+                        continue
+                    other = g2 if g1 in cube_ids else g1
+                    if m.body(
+                        m.geom_bodyid[other]
+                    ).name != "table" and contact.dist <= max(
+                        0.0, contact.includemargin
+                    ):
+                        invalid = True
+                        break
+                if not invalid:
+                    for name in CUBES:
+                        self.object_layout[name][:2] = xy[name].tolist()
+                    break
+            else:
+                # Do not silently fall back to a different distribution or
+                # leave an invalid candidate as a usable episode.
+                super().reset()
+                raise ValueError(
+                    f"No valid cube placement after {attempts} proposals; "
+                    "adjust cube_spawn_regions, min_gap_m or the robot layout"
+                )
+        return self._obs(), dict(
+            object_layout=copy.deepcopy(self.object_layout),
+            cube_spawn_regions=self.cube_spawn_regions,
+            spawn_attempts=attempts,
+        )
 
     def render_camera(self, name, *, width=640, height=480):
         """Independent RGB uint8 image from a named camera; never steps physics.

@@ -6,10 +6,9 @@ import mujoco
 import numpy as np
 
 from orca_sim.demos.bimanual_grasp import ContactAudit, PalmLift
-from orca_sim.mujoco_panda import PACKAGE, TABLE_HEIGHT
+from orca_sim.mujoco_bimanual import STACK_LAYOUT as STACK_LAYOUT
+from orca_sim.mujoco_panda import TABLE_HEIGHT
 from orca_sim.panda_stacking import blend_rotation, smooth
-
-STACK_LAYOUT = PACKAGE / "assets/mujoco/bimanual_stack_layout.json"
 
 
 def level_rotation(rotation):

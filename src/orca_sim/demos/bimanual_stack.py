@@ -11,11 +11,11 @@ import numpy as np
 
 from orca_sim.bimanual_stacking import BimanualStack, STACK_LAYOUT, StackContactAudit
 from orca_sim.contact_diagnostics import skin_geoms, skin_vertex_depth
-from orca_sim.mujoco_bimanual import OrcaBimanualPandaCubeStackingMujoco
+from orca_sim.mujoco_bimanual import OrcaBimanualPandaCubeStackingMujoco, scene_xml
 from orca_sim.panda_stacking import stack_metrics
 
 
-def run(output_dir, *, video=False, duration=80.0):
+def run(output_dir, *, video=False, duration=80.0, cube_spawn_regions=None, seed=None):
     if not np.isfinite(duration) or duration < 71:
         raise ValueError(
             "Allow at least 71 seconds for parallel pickups, placements and settling"
@@ -27,6 +27,7 @@ def run(output_dir, *, video=False, duration=80.0):
         target_marker="x",
         frame_skip=1,
         render_mode="rgb_array" if video else None,
+        cube_spawn_regions=cube_spawn_regions,
     )
     m, d = env.model, env.data
     writer = controller = None
@@ -38,7 +39,19 @@ def run(output_dir, *, video=False, duration=80.0):
     force_free = True
     checks = 0
     try:
-        (output_dir / "scene.xml").write_text(env.xml)
+        _, reset_info = env.reset(seed=seed)
+        initial_heights = {name: float(d.body(name).xpos[2]) for name in max_lift}
+        # Export the sampled initial layout, not the nominal constructor XML.
+        (output_dir / "scene.xml").write_text(
+            scene_xml(
+                start_pose=env.start_pose,
+                object_layout=env.object_layout,
+                target_marker="x",
+            )
+        )
+        (output_dir / "reset.json").write_text(
+            json.dumps(dict(seed=seed, **reset_info), indent=2) + "\n"
+        )
         controller = BimanualStack(env)
         audit = StackContactAudit(env)
         skins = skin_geoms(m)
@@ -92,9 +105,12 @@ def run(output_dir, *, video=False, duration=80.0):
             )
             for name in max_lift:
                 max_lift[name] = max(
-                    max_lift[name], float(d.body(name).xpos[2] - 0.353)
+                    max_lift[name], float(d.body(name).xpos[2] - initial_heights[name])
                 )
-                if pickup_lift_start[name] is None and d.body(name).xpos[2] > 0.383:
+                if (
+                    pickup_lift_start[name] is None
+                    and d.body(name).xpos[2] > initial_heights[name] + 0.03
+                ):
                     pickup_lift_start[name] = float(d.time)
             if step % 10 == 0:
                 max_skin = max(
@@ -190,6 +206,8 @@ def run(output_dir, *, video=False, duration=80.0):
             version=mujoco.__version__,
             duration_s=float(d.time),
             object_layout=env.object_layout,
+            cube_spawn_regions=env.cube_spawn_regions,
+            seed=seed,
             events=controller.events if controller else [],
             task="bimanual_pick_place_stack",
             max_lift_m=max_lift,
@@ -246,8 +264,19 @@ def main():
     )
     parser.add_argument("--video", action="store_true")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument(
+        "--cube-spawn-regions",
+        type=Path,
+        help="Environment reset distribution JSON (omit to retain the fixed layout)",
+    )
+    parser.add_argument("--seed", type=int, help="Reproducible environment reset seed")
     args = parser.parse_args()
-    result = run(args.output_dir, video=args.video)
+    result = run(
+        args.output_dir,
+        video=args.video,
+        cube_spawn_regions=args.cube_spawn_regions,
+        seed=args.seed,
+    )
     if args.check and not result["success"]:
         raise SystemExit("Bimanual stack validation failed; see report.json")
 
