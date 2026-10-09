@@ -426,6 +426,39 @@ All three stacks succeeded, each camera retained all 1,381 frames, and all sampl
 states and full-rate controls matched the single-worker trajectory exactly.
 This benchmark excludes dataset packaging/upload and randomized-layout retries.
 
+#### Randomized demonstration collection
+
+`orca_sim.demos.collect_randomized` collects **200 successful episodes**, using
+three independent simulators and one packaging process. Only red/blue cube XY
+changes: each samples its environment-owned 10×10 cm region. Robot homes, cube
+height/orientation/size, camera settings and the center X stay fixed. Attempts use
+distinct seeds, and duplicate initial layouts are rejected. Failed attempts are
+logged but not included, so the accepted dataset is success-conditioned.
+
+```bash
+# Run with the validated MuJoCo interpreter and this checkout's src on PYTHONPATH.
+python -m orca_sim.demos.collect_randomized run \
+  --root renders/randomized_collection_200 --episodes 200 --workers 3 \
+  --seed 202610090 --max-attempts 600 \
+  --package-python /path/to/lerobot/python
+```
+
+Add `--push --hub-parent <current-private-dataset-commit>` to update the private
+`fracapuano/orcapanda_cube_stacking_scripted` repository after validation. The
+coordinator refuses a changed Hub parent or public repository, preserves the
+previous smoke revision, and updates the LeRobot version tag after publication.
+No workers write shared dataset metadata or upload independently. This uses
+[LeRobot's official dataset aggregation](https://huggingface.co/docs/lerobot/using_dataset_tools).
+
+`status.json` reports progress and every attempt's seed/outcome; each attempt has
+separate recording/packaging logs. Final `provenance/episodes.json` maps dataset
+episodes to seeds and actual initial layouts. Raw staging PNGs are removed only
+after validated encoding (or a documented task failure); videos, states, actions,
+reports and failure evidence remain. The bounded queue prevents unbounded disk
+growth. Collection stops on unexpected process/packaging errors, nine consecutive
+task failures, low disk space or the attempt limit. Outputs are never overwritten;
+this command requires a new root and does not automatically resume interrupted runs.
+
 #### Independent collision-audited grasp/lift tests
 
 These separate, explicitly diagnostic tests are not invoked by the stacking loop.

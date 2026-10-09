@@ -64,7 +64,7 @@ def features(joints):
     }
 
 
-def record(root):
+def record(root, *, cube_spawn_regions=None, seed=None):
     from PIL import Image
     from orca_sim.demos import bimanual_stack as demo
 
@@ -91,14 +91,15 @@ def record(root):
                 hand_assignment=self.hand_assignment,
                 action_low=self.action_space.low.tolist(),
                 action_high=self.action_space.high.tolist(),
-                home_qpos=self.data.qpos.tolist(),
+                home_qpos=self.model.key("orcapanda_home").qpos.tolist(),
                 model_sha256=hashlib.sha256(self.xml.encode()).hexdigest(),
                 robot_type="bimanual_orcapanda_native_orca_hands",
                 simulation_timestep_s=0.001,
                 fps=FPS,
                 resolution=[640, 480],
                 cameras=list(CAMERAS),
-                fixed_layout=True,
+                fixed_layout=cube_spawn_regions is None,
+                seed=seed,
                 source_commit=subprocess.check_output(
                     ["git", "rev-parse", "HEAD"], text=True
                 ).strip(),
@@ -173,7 +174,9 @@ def record(root):
 
     demo.OrcaBimanualPandaCubeStackingMujoco = RecordingEnv
     try:
-        report = demo.run(root, video=False)
+        report = demo.run(
+            root, video=False, cube_spawn_regions=cube_spawn_regions, seed=seed
+        )
     finally:
         demo.OrcaBimanualPandaCubeStackingMujoco = original
     if not report["success"]:
@@ -187,7 +190,13 @@ def record(root):
     np.savez_compressed(
         root / "controls_1000hz.npz", action=np.asarray(controls), timestep_s=0.001
     )
-    metadata.update(frames=len(samples), simulation_seconds=report["duration_s"])
+    metadata.update(
+        frames=len(samples),
+        simulation_seconds=report["duration_s"],
+        object_layout=report["object_layout"],
+        cube_spawn_regions=report["cube_spawn_regions"],
+        initial_qpos=samples[0]["qpos"].tolist(),
+    )
     write_json(root / "recording.json", metadata)
     timings["record_total_seconds"] = perf_counter() - began
     write_json(root / "record_timing.json", timings)
@@ -424,6 +433,7 @@ def package(recording, root, repo_id):
         "record_timing.json",
         "controls_1000hz.npz",
         "samples.npz",
+        "reset.json",
     ):
         shutil.copyfile(recording / name, provenance / name)
     shutil.copyfile(__file__, provenance / "collector.py")
@@ -485,6 +495,23 @@ Task: {TASK}
     DatasetCard("---\n" + card_data.to_yaml() + "\n---\n\n" + text).save(
         root / "README.md"
     )
+    if not meta["fixed_layout"]:
+        text = (
+            text.replace("one-episode smoke test", "randomized collection shard")
+            .replace(
+                "One freshly simulated, successful native-MuJoCo episode. **Not the 200-demo randomized training set.**",
+                "One successful randomized native-MuJoCo episode; a shard awaiting dataset assembly.",
+            )
+            .replace(
+                "The fixed red/blue layout and fixed center X are recorded in `provenance/report.json`.",
+                "Only red/blue cube XY positions are randomized. The seed, actual initial positions, "
+                "shared sampling regions and fixed center X are in `provenance/reset.json`.",
+            )
+        )
+        card_data.tags = ["LeRobot", "mujoco", "scripted", "randomized-cube-xy"]
+        DatasetCard("---\n" + card_data.to_yaml() + "\n---\n\n" + text).save(
+            root / "README.md"
+        )
     t = perf_counter()
     checks = validate(root, repo_id, arrays)
     write_json(provenance / "validation.json", checks)
@@ -543,6 +570,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     rec = commands.add_parser("record")
     rec.add_argument("--output-dir", type=Path, required=True)
+    rec.add_argument("--cube-spawn-regions", type=Path)
+    rec.add_argument("--seed", type=int)
     batch = commands.add_parser("record-batch")
     batch.add_argument("--output-dir", type=Path, required=True)
     batch.add_argument("--episodes", type=int, default=3)
@@ -556,7 +585,9 @@ def main():
     push.add_argument("--repo-id", default=REPO_ID)
     args = parser.parse_args()
     if args.command == "record":
-        record(args.output_dir)
+        record(
+            args.output_dir, cube_spawn_regions=args.cube_spawn_regions, seed=args.seed
+        )
     elif args.command == "record-batch":
         record_batch(args.output_dir, args.episodes, args.workers)
     elif args.command == "package":
