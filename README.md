@@ -264,15 +264,15 @@ The editable starting preset is
 ```json
 {
   "version": 1,
-  "red_cube": {"x": [0.28, 0.32], "y": [0.181, 0.221]},
-  "blue_cube": {"x": [0.68, 0.72], "y": [0.181, 0.221]},
+  "red_cube": {"x": [0.25, 0.35], "y": [0.151, 0.251]},
+  "blue_cube": {"x": [0.65, 0.75], "y": [0.151, 0.251]},
   "min_gap_m": 0.02,
   "max_attempts": 200
 }
 ```
 
 Bounds are cube **centre coordinates in world/table XY, in metres**: these
-rectangles extend 2 cm each way from the demonstrated pickup locations.
+10 × 10 cm rectangles extend 5 cm each way from the demonstrated pickup locations.
 Increasing X goes from the right-arm base toward the left-arm base;
 increasing Y goes forward from the bases into the task workspace.
 Copy this JSON into your experiment configuration and change the bounds to
@@ -341,12 +341,14 @@ the model or changing contact settings, actuator limits or saved keyframes.
 This preset defines an evaluation distribution, **not a validated region of
 guaranteed grasp success**. The fixed-layout expert remains sensitive to
 position changes; randomized episodes can fail the existing collision audit.
-An initial MuJoCo 3.11.0 smoke check with seeds 0, 1 and 2 produced no fully
+An initial MuJoCo 3.11.0 smoke check of the **previous 4 × 4 cm regions**
+with seeds 0, 1 and 2 produced no fully
 passing episodes: seeds 0/1 stopped on thumb/middle-finger self-contact;
 seed 2 lifted both cubes and left a supported stack without unintended
 contacts, but its 13.3 mm stack offset exceeded the unchanged 12 mm limit.
 Three seeds are not a success-rate estimate; broader expert validation is
-still needed before collecting a training dataset.
+still needed before collecting a training dataset. The 10 × 10 cm preset
+has a larger support and is not a validated grasp-success region either.
 Keep failures in evaluation statistics. Filtering successful demonstrations
 changes the collected data distribution and must not redefine policy resets.
 

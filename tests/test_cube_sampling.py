@@ -18,6 +18,17 @@ def config():
     return json.loads(CUBE_SPAWN_REGIONS.read_text())
 
 
+def test_dataset_preset_is_ten_cm_square_with_unchanged_centres_and_target():
+    regions = config()
+    layout = json.loads(STACK_LAYOUT.read_text())
+    for name, center_x in (("red_cube", 0.3), ("blue_cube", 0.7)):
+        for axis, center in (("x", center_x), ("y", 0.201)):
+            bounds = regions[name][axis]
+            assert bounds[1] - bounds[0] == pytest.approx(0.10)
+            assert np.mean(bounds) == pytest.approx(center)
+    assert layout["stack_target"] == [0.5, 0.201, 0.326]
+
+
 def make_env(**kwargs):
     return OrcaBimanualPandaCubeStackingMujoco(
         object_layout=STACK_LAYOUT,
