@@ -357,6 +357,47 @@ has a larger support and is not a validated grasp-success region either.
 Keep failures in evaluation statistics. Filtering successful demonstrations
 changes the collected data distribution and must not redefine policy resets.
 
+#### One-episode LeRobot smoke collection
+
+`python -m orca_sim.demos.collect_lerobot_smoke` has three explicit stages:
+
+```bash
+# Run in the validated simulator environment (MuJoCo, NumPy, Pillow).
+python -m orca_sim.demos.collect_lerobot_smoke record \
+  --output-dir renders/lerobot_smoke/recording
+
+# Run with LeRobot 0.5.0 and its dataset/video dependencies available.
+python -m orca_sim.demos.collect_lerobot_smoke package \
+  --recording-dir renders/lerobot_smoke/recording \
+  --dataset-dir renders/lerobot_smoke/dataset
+
+# Explicit network write, using the logged-in Hugging Face account.
+python -m orca_sim.demos.collect_lerobot_smoke upload \
+  --dataset-dir renders/lerobot_smoke/dataset
+```
+
+The default repository is `fracapuano/orcapanda_cube_stacking_scripted`; override
+`--repo-id` on both package and upload for a different destination. Upload creates
+a **private** dataset and refuses to overwrite an existing repository. Record and
+package require fresh output directories. No upload happens unless requested.
+Recording retains bounded, lossless PNG staging, then LeRobot writes its standard
+v3.0 Parquet/video/metadata structure with H.264 videos. All three cameras use the
+same pre-action state at 20 Hz, with native rendering settings unchanged.
+
+This is one fixed-layout smoke episode, not the randomized 200-demo collector.
+The 48D state and action have explicit joint names; actions are absolute target
+angles in radians. The expert still updates at 1 kHz, so the 20 Hz action feature
+is subsampled, **not** a command held unchanged for 50 ms. Full 1 kHz controls and
+sampled full simulator states are retained in `provenance/`. A 20 Hz learned
+policy's equivalent behavior has not been established. The dataset card records
+these limitations, hand assignment, layout and task-success report.
+
+Before upload, validation checks all numeric sample alignment, episode boundaries,
+video frame counts/timestamps, and LeRobot decoding of each camera. The source
+runtime and packaging runtime may differ: set `PYTHONPATH` to this checkout's
+`src` when using a separate Python interpreter. Do not silently switch the
+simulator's numerical dependencies just to install the dataset writer.
+
 #### Independent collision-audited grasp/lift tests
 
 These separate, explicitly diagnostic tests are not invoked by the stacking loop.
