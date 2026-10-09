@@ -459,6 +459,26 @@ growth. Collection stops on unexpected process/packaging errors, nine consecutiv
 task failures, low disk space or the attempt limit. Outputs are never overwritten;
 this command requires a new root and does not automatically resume interrupted runs.
 
+#### Live collection / hardware dashboard
+
+Run in an interpreter with `psutil` (or install this package's `monitor` extra):
+
+```bash
+python -m orca_sim.collection_monitor \
+  --root renders/randomized_collection_200 --port 8766
+```
+
+Open the printed localhost URL. The read-only dashboard refreshes every two
+seconds: validated-episode progress, each recorder's simulation progress and
+phase, encoding queue, throughput/estimated remaining recording time, CPU cores,
+Apple Silicon GPU utilization, memory/swap, disk and job processes. The dashboard
+has its own lightweight sampler; it never steps, pauses or changes the simulator.
+It flags disconnected/stale data and a missing collection coordinator. Hardware
+is host-wide; per-process CPU uses 100% per core and summed RSS can double-count
+shared pages. GPU usage comes from unprivileged macOS counters when available;
+unsupported counters show unavailable, not zero. The server binds only loopback,
+has no job-control endpoints, and sends no remote telemetry.
+
 #### Independent collision-audited grasp/lift tests
 
 These separate, explicitly diagnostic tests are not invoked by the stacking loop.

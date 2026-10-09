@@ -33,12 +33,16 @@ panda = [
 dev = [
   "pytest>=8",
 ]
+monitor = [
+  "psutil>=5.9",
+]
 
 [project.scripts]
 orca-sim-stack = "orca_sim.demos.panda_grasp:main"
 orca-sim-pose-editor = "orca_sim.pose_editor:main"
 orca-sim-bimanual = "orca_sim.demos.bimanual:main"
 orca-sim-bimanual-stack = "orca_sim.demos.bimanual_stack:main"
+orca-sim-collection-monitor = "orca_sim.collection_monitor:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -58,6 +62,9 @@ orca_sim = [
   "scenes/*.xml",
   "assets/mujoco/*.json",
   "assets/mujoco/*.html",
+  "assets/monitor/*.html",
+  "assets/monitor/*.css",
+  "assets/monitor/*.js",
   "scenes/*/*.xml",
   "assets/mjcf/*.xml",
   "assets/mjcf/*/*.xml",
