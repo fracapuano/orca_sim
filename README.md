@@ -398,6 +398,34 @@ runtime and packaging runtime may differ: set `PYTHONPATH` to this checkout's
 `src` when using a separate Python interpreter. Do not silently switch the
 simulator's numerical dependencies just to install the dataset writer.
 
+To measure concurrent recording, use a fresh output directory:
+
+```bash
+python -m orca_sim.demos.collect_lerobot_smoke record-batch \
+  --episodes 3 --workers 3 --output-dir renders/parallel_recording_3
+```
+
+Each worker is a separate process with its own simulator, renderer, log and
+`episode_NNNNNN/` recording. The launcher limits active processes to `--workers`,
+preserves partial output on interruption, and writes `batch_result.json` with
+successes, timings and aggregate throughput. Camera rendering remains sequential
+inside each worker; there is no nested three-camera process pool.
+
+This command repeats the **fixed-layout smoke episode** to measure recording
+throughput. It neither randomizes starts nor packages/uploads a multi-episode
+dataset. Do not treat duplicate benchmark episodes as diverse demonstrations.
+Dataset assembly must be coordinated separately; workers must not concurrently
+append to the same LeRobot metadata files or push to the same Hub repository.
+Three is the starting concurrency setting, not a promise of threefold speedup
+or a measured maximum; all workers share the GPU and memory.
+
+Measured on a 10-core M1 Pro with 16 GiB memory: three concurrent recordings
+finished in 565.7 seconds (9m26s), versus 3 × 344.9 seconds (17m15s) estimated
+from the single-worker recording. That is **1.83× aggregate recording throughput**.
+All three stacks succeeded, each camera retained all 1,381 frames, and all sampled
+states and full-rate controls matched the single-worker trajectory exactly.
+This benchmark excludes dataset packaging/upload and randomized-layout retries.
+
 #### Independent collision-audited grasp/lift tests
 
 These separate, explicitly diagnostic tests are not invoked by the stacking loop.

@@ -15,7 +15,8 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-from time import perf_counter
+import sys
+from time import perf_counter, sleep
 
 import numpy as np
 
@@ -191,6 +192,118 @@ def record(root):
     timings["record_total_seconds"] = perf_counter() - began
     write_json(root / "record_timing.json", timings)
     print(json.dumps(timings, indent=2), flush=True)
+
+
+def record_batch(root, episodes=3, workers=3):
+    """Independent processes, disjoint outputs; no shared dataset or Hub writes.
+
+    This is a fixed-layout throughput test, not randomized demonstration collection.
+    Cameras remain sequential within each worker to avoid nested render workers.
+    """
+    if episodes < 1 or workers < 1:
+        raise ValueError("episodes and workers must be positive")
+    root = Path(root).resolve()
+    root.mkdir(parents=True, exist_ok=False)
+    began = perf_counter()
+    active, results = {}, []
+    next_episode, next_progress = 0, 0.0
+    try:
+        while active or next_episode < episodes:
+            while next_episode < episodes and len(active) < workers:
+                i = next_episode
+                output = root / f"episode_{i:06d}"
+                log_path = root / f"episode_{i:06d}.log"
+                log = log_path.open("w")
+                try:
+                    process = subprocess.Popen(
+                        [
+                            sys.executable,
+                            "-m",
+                            "orca_sim.demos.collect_lerobot_smoke",
+                            "record",
+                            "--output-dir",
+                            str(output),
+                        ],
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                    )
+                except BaseException:
+                    log.close()
+                    raise
+                active[i] = (process, log, log_path, output, perf_counter())
+                print(f"START episode={i} pid={process.pid}", flush=True)
+                next_episode += 1
+            for i, (process, log, log_path, output, started) in list(active.items()):
+                code = process.poll()
+                if code is None:
+                    continue
+                log.close()
+                report_path = output / "report.json"
+                report = (
+                    json.loads(report_path.read_text()) if report_path.exists() else {}
+                )
+                timing_path = output / "record_timing.json"
+                timing = (
+                    json.loads(timing_path.read_text()) if timing_path.exists() else {}
+                )
+                result = dict(
+                    episode=i,
+                    returncode=code,
+                    success=code == 0 and bool(report.get("success")),
+                    process_wall_seconds=perf_counter() - started,
+                    timings=timing,
+                    output_dir=str(output),
+                )
+                results.append(result)
+                del active[i]
+                print("FINISH " + json.dumps(result), flush=True)
+            if perf_counter() - began >= next_progress:
+                progress = []
+                for i, (_, _, log_path, _, _) in active.items():
+                    lines = [
+                        line
+                        for line in log_path.read_text().splitlines()
+                        if line.startswith("RECORD ")
+                    ]
+                    progress.append(
+                        f"episode {i}: {lines[-1] if lines else 'initializing'}"
+                    )
+                if progress:
+                    print(
+                        f"BATCH wall={perf_counter() - began:.1f}s | "
+                        + " | ".join(progress),
+                        flush=True,
+                    )
+                next_progress = perf_counter() - began + 20
+            if active:
+                sleep(0.2)
+    finally:
+        # Only stop children owned by this batch, preserving partial recordings.
+        for process, log, _, _, _ in active.values():
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            log.close()
+    wall = perf_counter() - began
+    successes = sum(result["success"] for result in results)
+    summary = dict(
+        workers=min(workers, episodes),
+        episodes=episodes,
+        successful_episodes=successes,
+        batch_wall_seconds=wall,
+        successful_episodes_per_hour=successes * 3600 / wall,
+        results=sorted(results, key=lambda r: r["episode"]),
+        scope="Fixed-layout recording only; no packaging, upload, or randomized success-rate test.",
+    )
+    write_json(root / "batch_result.json", summary)
+    print(json.dumps(summary, indent=2), flush=True)
+    if successes != episodes:
+        raise RuntimeError("Some recordings failed; inspect the separate episode logs")
+    return summary
 
 
 def validate(root, repo_id, expected=None):
@@ -430,6 +543,10 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     rec = commands.add_parser("record")
     rec.add_argument("--output-dir", type=Path, required=True)
+    batch = commands.add_parser("record-batch")
+    batch.add_argument("--output-dir", type=Path, required=True)
+    batch.add_argument("--episodes", type=int, default=3)
+    batch.add_argument("--workers", type=int, default=3)
     pack = commands.add_parser("package")
     pack.add_argument("--recording-dir", type=Path, required=True)
     pack.add_argument("--dataset-dir", type=Path, required=True)
@@ -440,6 +557,8 @@ def main():
     args = parser.parse_args()
     if args.command == "record":
         record(args.output_dir)
+    elif args.command == "record-batch":
+        record_batch(args.output_dir, args.episodes, args.workers)
     elif args.command == "package":
         package(args.recording_dir, args.dataset_dir, args.repo_id)
     else:
