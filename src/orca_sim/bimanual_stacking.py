@@ -5,7 +5,7 @@ from __future__ import annotations
 import mujoco
 import numpy as np
 
-from orca_sim.demos.bimanual_grasp import ContactAudit, PalmLift
+from orca_sim.demos.bimanual_grasp import PalmLift
 from orca_sim.mujoco_bimanual import STACK_LAYOUT as STACK_LAYOUT
 from orca_sim.mujoco_panda import TABLE_HEIGHT
 from orca_sim.panda_stacking import blend_rotation, smooth
@@ -246,7 +246,7 @@ class BimanualStack:
             if age >= 23:
                 # Neither arm may enter the center until BOTH pickups pass.
                 for side, cube in (("right", "red_cube"), ("left", "blue_cube")):
-                    contact = self.pickers[side].audit.inspect()
+                    contact = self.pickers[side].audit.grasp_feedback()
                     if (
                         d.body(cube).xpos[2] < TABLE_HEIGHT + 0.16
                         or contact["hand_contacts"] < 2
@@ -294,43 +294,17 @@ class BimanualStack:
         return self.action.copy(), f"{self.phase} | {detail}"
 
 
-class StackContactAudit:
-    """Allow only each hand's assigned cube and real cube support contacts."""
-
-    def __init__(self, env):
-        self.env = env
-        self.roles = ContactAudit(env, "right", "red_cube").roles
-        self.allowed = {
-            frozenset(pair)
-            for pair in (
-                ("right_hand", "red_cube"),
-                ("left_hand", "blue_cube"),
-                ("red_cube", "table"),
-                ("blue_cube", "table"),
-                ("red_cube", "blue_cube"),
-            )
-        }
-
-    def inspect(self):
-        m, d = self.env.model, self.env.data
-        forbidden, depth, hand_contacts = [], 0.0, 0
-        force = np.empty(6)
-        for i, c in enumerate(d.contact):
+def robot_cube_contacts(env):
+    """Task-success check: the released stack must not be held by a robot."""
+    m, d = env.model, env.data
+    cubes = {m.geom(name + "_geom").id for name in ("red_cube", "blue_cube")}
+    force, count = np.empty(6), 0
+    for i, contact in enumerate(d.contact):
+        g1, g2 = int(contact.geom1), int(contact.geom2)
+        if not cubes.intersection((g1, g2)):
+            continue
+        other = g2 if g1 in cubes else g1
+        if env.geom_robots[other] is not None:
             mujoco.mj_contactForce(m, d, i, force)
-            roles = frozenset((self.roles[c.geom1], self.roles[c.geom2]))
-            if c.dist < -1e-7 or force[0] > 1e-5:
-                if roles not in self.allowed:
-                    forbidden.append(
-                        dict(
-                            roles=sorted(roles),
-                            bodies=[
-                                m.body(m.geom_bodyid[g]).name
-                                for g in (c.geom1, c.geom2)
-                            ],
-                            depth_m=max(0.0, -float(c.dist)),
-                            force_N=float(force[0]),
-                        )
-                    )
-                depth = max(depth, -float(c.dist))
-                hand_contacts += int(bool(roles & {"right_hand", "left_hand"}))
-        return dict(forbidden=forbidden, max_depth_m=depth, hand_contacts=hand_contacts)
+            count += int(force[0] > 1e-4)
+    return count

@@ -73,6 +73,20 @@ def test_positive_contact_margin_with_force_is_still_a_collision():
     assert metrics["forbidden"][0]["force_N"] > 0
 
 
+@pytest.mark.parametrize("side,cube", [("right", "red_cube"), ("left", "blue_cube")])
+@pytest.mark.parametrize(
+    "body", ["right_finger", "left_finger", "right_panda_link6", "table"]
+)
+@pytest.mark.parametrize("cube_first", [False, True])
+def test_grasp_feedback_matches_original_controller_signals(
+    side, cube, body, cube_first
+):
+    env = contact_fixture(*((cube, body) if cube_first else (body, cube)))
+    audit = ContactAudit(env, side, cube)
+    feedback, metrics = audit.grasp_feedback(), audit.inspect()
+    assert feedback == {key: metrics[key] for key in feedback}
+
+
 @pytest.mark.parametrize("side", ("right", "left"))
 def test_controller_planning_is_scratch_only_and_keeps_other_commands(side):
     layout = tabletop_configuration(REACH_LAYOUT)

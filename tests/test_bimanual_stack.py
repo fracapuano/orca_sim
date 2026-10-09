@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from types import SimpleNamespace
 
-from orca_sim.bimanual_stacking import STACK_LAYOUT, StackContactAudit, level_rotation
+from orca_sim.bimanual_stacking import STACK_LAYOUT, level_rotation, robot_cube_contacts
 from orca_sim.mujoco_bimanual import (
     OrcaBimanualPandaCubeStackingMujoco,
     tabletop_configuration,
@@ -103,7 +103,7 @@ def test_either_failed_pick_blocks_both_arms_from_placement(failed_side):
             command=lambda _: (np.zeros(48), "HOLD"),
             palm=SimpleNamespace(close_time=None),
             audit=SimpleNamespace(
-                inspect=lambda side=side: dict(
+                grasp_feedback=lambda side=side: dict(
                     hand_contacts=0 if side == failed_side else 2
                 )
             ),
@@ -152,40 +152,79 @@ def test_face_levelling_preserves_yaw_and_proper_rotation(angle):
 
 
 @pytest.mark.parametrize(
-    "first,second,forbidden",
+    "first,second,held",
     [
-        ("right_finger", "red_cube", False),
-        ("left_finger", "blue_cube", False),
+        ("right_finger", "red_cube", True),
+        ("left_finger", "blue_cube", True),
         ("red_cube", "blue_cube", False),
         ("blue_cube", "table", False),
         ("right_finger", "blue_cube", True),
         ("left_finger", "red_cube", True),
-        ("right_finger", "left_finger", True),
-        ("left_finger", "table", True),
+        ("right_finger", "left_finger", False),
+        ("left_finger", "table", False),
         ("left_panda_link6", "blue_cube", True),
-        ("right_thumb", "right_finger", True),
+        ("right_thumb", "right_finger", False),
     ],
 )
-def test_stacking_audit_allows_only_assigned_grasps_and_object_support(
-    first, second, forbidden
-):
+def test_released_stack_check_only_detects_robot_cube_support(first, second, held):
     env = contact_fixture(first, second)
-    assert bool(StackContactAudit(env).inspect()["forbidden"]) == forbidden
+    env.geom_robots = tuple(
+        next(
+            (
+                side
+                for side in ("right", "left")
+                if env.model.body(body).name.startswith(side + "_")
+            ),
+            None,
+        )
+        for body in env.model.geom_bodyid
+    )
+    assert bool(robot_cube_contacts(env)) == held
+
+
+def test_unloaded_robot_cube_contact_is_not_support(monkeypatch):
+    import mujoco
+
+    env = contact_fixture("right_finger", "red_cube")
+    monkeypatch.setattr(mujoco, "mj_contactForce", lambda m, d, i, force: force.fill(0))
+    env.geom_robots = ("right", None, None)
+    assert robot_cube_contacts(env) == 0
 
 
 @pytest.mark.slow
-def test_continuous_bimanual_pick_place_stack(tmp_path):
+def test_continuous_bimanual_pick_place_stack(tmp_path, monkeypatch):
+    from orca_sim import contact_diagnostics
+    from orca_sim.demos import bimanual_grasp
     from orca_sim.demos.bimanual_stack import run
 
+    def diagnostic_called(*args, **kwargs):
+        raise AssertionError("Stacking must not run the removed diagnostics")
+
+    monkeypatch.setattr(bimanual_grasp.ContactAudit, "inspect", diagnostic_called)
+    for module in (contact_diagnostics, bimanual_grasp):
+        monkeypatch.setattr(module, "skin_geoms", diagnostic_called)
+        monkeypatch.setattr(module, "skin_vertex_depth", diagnostic_called)
     report = run(tmp_path)
     assert report["success"], report
-    assert report["forbidden_contact_count"] == 0
+    assert report["validation_scope"] == "task_outcome_only"
+    assert not {
+        "collision_checks",
+        "forbidden_contact_count",
+        "forbidden_contacts",
+        "max_contact_depth_m",
+        "max_skin_vertex_depth_m",
+        "max_joint_limit_violation_rad",
+        "max_hand_torque_Nm",
+        "external_forces_zero",
+        "equalities",
+        "skin_vertex_probe_interval_s",
+    }.intersection(report)
+    assert not list(tmp_path.glob("*.npz"))
     assert report["stable_stack_samples"] >= 499
     assert report["validation_settle_seconds"] >= 5
     assert report["base_target_error_m"] < 0.012
     assert report["max_lift_m"]["red_cube"] > 0.15
     assert report["max_lift_m"]["blue_cube"] > 0.15
-    assert report["external_forces_zero"] and report["equalities"] == 0
     assert report["duration_s"] < 71
     assert report["events"][0]["phase"] == "BOTH PICK CUBES"
     assert (

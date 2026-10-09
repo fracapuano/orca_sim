@@ -58,6 +58,35 @@ class ContactAudit:
             f"{self.hand_side}_{'R' if self.hand_side == 'right' else 'L'}-Carpals"
         )
 
+    def grasp_feedback(self):
+        """Only the hand/cube signals used by control; no collision auditing."""
+        m, d = self.env.model, self.env.data
+        result = dict(hand_contacts=0, palm_top_contacts=0, palm_top_load_N=0.0)
+        wrench = np.empty(6)
+        rotation = d.geom_xmat[self.cube_id].reshape(3, 3)
+        for i, contact in enumerate(d.contact):
+            g1, g2 = int(contact.geom1), int(contact.geom2)
+            if self.cube_id not in (g1, g2):
+                continue
+            other = g2 if g1 == self.cube_id else g1
+            if self.roles[other] != self.side + "_hand":
+                continue
+            mujoco.mj_contactForce(m, d, i, wrench)
+            if wrench[0] <= 1e-4:
+                continue
+            result["hand_contacts"] += 1
+            mesh = int(m.geom_dataid[other])
+            if mesh >= 0 and m.mesh(mesh).name == self.palm_mesh:
+                point = (contact.pos - d.geom_xpos[self.cube_id]) @ rotation
+                normal = contact.frame[:3] @ rotation
+                if (
+                    abs(point[2] - m.geom_size[self.cube_id, 2]) < 0.002
+                    and abs(normal[2]) > 0.8
+                ):
+                    result["palm_top_contacts"] += 1
+                    result["palm_top_load_N"] += float(wrench[0])
+        return result
+
     def inspect(self):
         m, d = self.env.model, self.env.data
         result = dict(
@@ -203,7 +232,7 @@ class PalmLift:
             )
             phase = "APPROACH"
         else:
-            phase, z, fraction = self.palm.command(t, self.audit.inspect())
+            phase, z, fraction = self.palm.command(t, self.audit.grasp_feedback())
             arm = np.array(
                 [np.interp(z, self.zs, self.solutions[:, j]) for j in range(7)]
             )

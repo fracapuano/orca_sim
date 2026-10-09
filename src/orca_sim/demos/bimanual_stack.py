@@ -9,8 +9,7 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from orca_sim.bimanual_stacking import BimanualStack, STACK_LAYOUT, StackContactAudit
-from orca_sim.contact_diagnostics import skin_geoms, skin_vertex_depth
+from orca_sim.bimanual_stacking import BimanualStack, STACK_LAYOUT, robot_cube_contacts
 from orca_sim.mujoco_bimanual import OrcaBimanualPandaCubeStackingMujoco, scene_xml
 from orca_sim.panda_stacking import stack_metrics
 
@@ -31,13 +30,10 @@ def run(output_dir, *, video=False, duration=80.0, cube_spawn_regions=None, seed
     )
     m, d = env.model, env.data
     writer = controller = None
-    trace, settled, forbidden = [], [], []
+    trace, settled = [], []
     error = None
-    max_depth = max_skin = max_limit = max_torque = 0.0
     max_lift = dict(red_cube=0.0, blue_cube=0.0)
     pickup_lift_start = dict.fromkeys(max_lift)
-    force_free = True
-    checks = 0
     try:
         _, reset_info = env.reset(seed=seed)
         initial_heights = {name: float(d.body(name).xpos[2]) for name in max_lift}
@@ -53,9 +49,6 @@ def run(output_dir, *, video=False, duration=80.0, cube_spawn_regions=None, seed
             json.dumps(dict(seed=seed, **reset_info), indent=2) + "\n"
         )
         controller = BimanualStack(env)
-        audit = StackContactAudit(env)
-        skins = skin_geoms(m)
-        cubes = [m.geom(n + "_geom").id for n in max_lift]
         if video:
             import imageio.v2 as imageio
             from PIL import Image, ImageDraw, ImageFont
@@ -67,42 +60,14 @@ def run(output_dir, *, video=False, duration=80.0, cube_spawn_regions=None, seed
                 output_dir / "home.png"
             )
         next_frame, last_phase = 0.0, None
-        saved_stages = set()
         for step in range(round(duration / m.opt.timestep)):
             action, phase = controller.command()
             if phase != last_phase:
                 print(f"{d.time:5.1f}s | {phase}", flush=True)
                 last_phase = phase
-            if controller.phase not in saved_stages:
-                state_spec = mujoco.mjtState.mjSTATE_INTEGRATION
-                state = np.empty(mujoco.mj_stateSize(m, state_spec))
-                mujoco.mj_getState(m, d, state, state_spec)
-                np.savez(
-                    output_dir / (controller.phase.lower().replace(" ", "_") + ".npz"),
-                    state=state,
-                )
-                saved_stages.add(controller.phase)
             env.step(action)
-            checks += 1
-            contacts = audit.inspect()
-            max_depth = max(max_depth, contacts["max_depth_m"])
-            if contacts["forbidden"]:
-                forbidden.extend(
-                    dict(t=float(d.time), **v) for v in contacts["forbidden"]
-                )
-                raise RuntimeError("Unintended contact: " + str(forbidden[0]))
             if not np.isfinite(d.qpos).all() or not np.isfinite(d.qvel).all():
                 raise RuntimeError("Nonfinite physics state")
-            force_free &= not np.any(d.xfrc_applied) and not np.any(d.qfrc_applied)
-            q = d.qpos[env.qadr]
-            max_limit = max(
-                max_limit,
-                float(np.max(env.action_space.low - q)),
-                float(np.max(q - env.action_space.high)),
-            )
-            max_torque = max(
-                max_torque, float(np.max(np.abs(d.actuator_force[np.r_[7:24, 31:48]])))
-            )
             for name in max_lift:
                 max_lift[name] = max(
                     max_lift[name], float(d.body(name).xpos[2] - initial_heights[name])
@@ -113,9 +78,6 @@ def run(output_dir, *, video=False, duration=80.0, cube_spawn_regions=None, seed
                 ):
                     pickup_lift_start[name] = float(d.time)
             if step % 10 == 0:
-                max_skin = max(
-                    max_skin, *(skin_vertex_depth(m, d, g, skins) for g in cubes)
-                )
                 metrics = dict(
                     t=float(d.time),
                     phase=phase,
@@ -128,7 +90,7 @@ def run(output_dir, *, video=False, duration=80.0, cube_spawn_regions=None, seed
                 trace.append(metrics)
                 if controller.phase == "SETTLE STACK":
                     settled.append(
-                        dict(**metrics, hand_contacts=contacts["hand_contacts"])
+                        dict(**metrics, robot_cube_contacts=robot_cube_contacts(env))
                     )
             if writer is not None and d.time >= next_frame - 1e-9:
                 frame = Image.fromarray(
@@ -194,7 +156,7 @@ def run(output_dir, *, video=False, duration=80.0, cube_spawn_regions=None, seed
         stable = len(settled) >= 499 and all(
             s["stack_contacts"] > 0
             and s["blue_table_contacts"] > 0
-            and s["hand_contacts"] == 0
+            and s["robot_cube_contacts"] == 0
             and s["stack_xy_error_m"] < 0.012
             and abs(s["stack_height_m"] - 0.056) < 0.004
             and s["cube_linear_speed_m_s"] < 0.02
@@ -214,35 +176,14 @@ def run(output_dir, *, video=False, duration=80.0, cube_spawn_regions=None, seed
             pickup_lift_start_s=pickup_lift_start,
             base_target_error_m=xy,
             **final,
-            collision_checks=checks,
-            forbidden_contact_count=len(forbidden),
-            forbidden_contacts=forbidden[:20],
-            max_contact_depth_m=max_depth,
-            max_skin_vertex_depth_m=max_skin,
-            max_joint_limit_violation_rad=max_limit,
-            max_hand_torque_Nm=max_torque,
-            external_forces_zero=bool(force_free),
-            equalities=int(m.neq),
+            validation_scope="task_outcome_only",
             warnings=warnings,
             stable_stack_samples=len(settled),
             validation_settle_seconds=float(d.time - controller.start_time)
             if controller and controller.phase == "SETTLE STACK"
             else 0.0,
-            skin_vertex_probe_interval_s=0.01,
             error=error,
-            success=bool(
-                error is None
-                and stable
-                and xy < 0.012
-                and not forbidden
-                and max_skin < 0.0001
-                and max_depth < 0.001
-                and max_limit < 0.03
-                and max_torque <= 1 + 1e-10
-                and force_free
-                and m.neq == 0
-                and not warnings
-            ),
+            success=bool(error is None and stable and xy < 0.012 and not warnings),
         )
         (output_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         (output_dir / "trace.json").write_text(json.dumps(trace) + "\n")

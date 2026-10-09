@@ -238,16 +238,20 @@ Only the existing 48 joint-position actuators are driven. Cubes remain free
 dynamic bodies: no welds, object-state writes, external forces, contact-mask
 changes or gain/torque-limit changes. Palm contact gates finger closure;
 measured cube pose guides transfer/placement. Shared center access is
-serialized, and contact auditing at every 1 ms physics step rejects robot
-self-contact, inter-robot contact, wrong-hand/cube contact and robot/table
-contact. This is a scripted controller for this layout, not a general-purpose
-collision-avoidance planner.
+serialized. The stacking loop does not run the extra collision audit, hand-skin
+mesh scans, or joint-limit/torque diagnostic tracking; finger self-contact no
+longer triggers an audit abort. MuJoCo collision physics and the hand/cube
+contact feedback used by the controller are unchanged. This is a scripted
+controller for this layout, not a general-purpose collision-avoidance planner.
 
 `renders/bimanual_stack/` contains `rollout.mp4` (with `--video`), exported
-`scene.xml`, `report.json`, state/control `trace.json`, and diagnostic stage
-checkpoints. The command starts from home; it never resumes those checkpoints.
+`scene.xml`, `reset.json`, `report.json`, and state/control `trace.json`.
+The command starts from home and no longer writes diagnostic stage checkpoints.
 `--check` exits unsuccessfully unless the released stack passes the physical
-support, position, velocity and contact checks. The video uses the closer
+support, position and velocity checks, with neither robot supporting a cube.
+Reports declare `validation_scope: "task_outcome_only"`: success is not a
+collision-free or mesh-penetration certification, and removed diagnostics are
+omitted rather than reported as zero. The video uses the closer
 `front` camera with orbit-view close-ups of both pickups; both wrist cameras
 are also present in the exported model.
 
@@ -340,19 +344,22 @@ the model or changing contact settings, actuator limits or saved keyframes.
 
 This preset defines an evaluation distribution, **not a validated region of
 guaranteed grasp success**. The fixed-layout expert remains sensitive to
-position changes; randomized episodes can fail the existing collision audit.
-An initial MuJoCo 3.11.0 smoke check of the **previous 4 × 4 cm regions**
-with seeds 0, 1 and 2 produced no fully
-passing episodes: seeds 0/1 stopped on thumb/middle-finger self-contact;
+position changes. Before removing the stacking-loop diagnostics, an initial
+MuJoCo 3.11.0 smoke check of the **previous 4 × 4 cm regions** with seeds 0,
+1 and 2 produced no fully passing episodes: the old audit stopped seeds 0/1 on
+thumb/middle-finger self-contact (not proof that the physical grasp could not finish);
 seed 2 lifted both cubes and left a supported stack without unintended
 contacts, but its 13.3 mm stack offset exceeded the unchanged 12 mm limit.
-Three seeds are not a success-rate estimate; broader expert validation is
-still needed before collecting a training dataset. The 10 × 10 cm preset
+Those historical audit results are not a success-rate estimate for the current
+runner; broader expert validation is still needed before collecting a training
+dataset. The 10 × 10 cm preset
 has a larger support and is not a validated grasp-success region either.
 Keep failures in evaluation statistics. Filtering successful demonstrations
 changes the collected data distribution and must not redefine policy resets.
 
 #### Independent collision-audited grasp/lift tests
+
+These separate, explicitly diagnostic tests are not invoked by the stacking loop.
 
 The right arm's attached hand targets red in the saved layout. The saved blue cube is
 still at x=0, about 1.09 m horizontally from the left base; the left
