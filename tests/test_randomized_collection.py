@@ -129,3 +129,93 @@ def test_coordinator_retries_failed_seed_and_keeps_exact_success_count(
     assert state["attempts"][0]["status"] == "failed"
     assert len(assembled) == 1 and "--push" not in assembled[0]
     assert not list(root.glob("attempt_*/recording/frames"))
+
+
+def test_official_lerobot_aggregation_preserves_episode_and_camera_alignment(tmp_path):
+    """Synthetic three-frame fixtures only; never simulated data or Hub writes."""
+    pytest.importorskip("lerobot")
+    import numpy as np
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    from orca_sim.demos.collect_lerobot_smoke import features
+
+    root = tmp_path / "synthetic_aggregation_fixture"
+    root.mkdir()
+    regions = collection.read_json(collection.REGIONS)
+    collection.write_json(root / "spawn_regions.json", regions)
+    collection.write_json(
+        root / "status.json",
+        dict(
+            target_episodes=3,
+            successful_attempts=[0, 1, 2],
+            spawn_regions=regions,
+            fixture="synthetic unit test, not demonstrations",
+        ),
+    )
+    for episode in range(3):
+        folder = root / f"attempt_{episode:06d}/dataset"
+        meta = metadata(episode)
+        meta.update(frames=3, action_semantics="Synthetic unit-test commands only.")
+        arrays = dict(
+            time=np.arange(3) / collection.FPS,
+            state=np.full((3, 48), episode / 10),
+            velocity=np.zeros((3, 48)),
+            action=np.full((3, 48), episode / 20),
+            cube_poses=np.tile(
+                np.r_[
+                    meta["object_layout"]["red_cube"],
+                    [1, 0, 0, 0],
+                    meta["object_layout"]["blue_cube"],
+                    [1, 0, 0, 0],
+                ],
+                (3, 1),
+            ),
+        )
+        ds = LeRobotDataset.create(
+            repo_id=collection.REPO_ID,
+            root=folder,
+            fps=collection.FPS,
+            robot_type="synthetic_fixture",
+            features=features([f"joint_{i}" for i in range(48)]),
+            use_videos=True,
+            video_backend="pyav",
+            vcodec="h264",
+            encoder_threads=1,
+        )
+        try:
+            for frame in range(3):
+                value = {
+                    "observation.state": arrays["state"][frame].astype(np.float32),
+                    "observation.velocity": arrays["velocity"][frame].astype(
+                        np.float32
+                    ),
+                    "action": arrays["action"][frame].astype(np.float32),
+                    "observation.cube_poses": arrays["cube_poses"][frame].astype(
+                        np.float32
+                    ),
+                    "next.done": np.array([frame == 2]),
+                    "next.success": np.array([frame == 2]),
+                    "task": collection.TASK,
+                }
+                for camera_index, camera in enumerate(collection.CAMERAS):
+                    value[f"observation.images.{camera}"] = np.full(
+                        (480, 640, 3),
+                        episode * 50 + frame * 5 + camera_index,
+                        dtype=np.uint8,
+                    )
+                ds.add_frame(value)
+            ds.save_episode(parallel_encoding=False)
+        finally:
+            ds.finalize()
+            ds.stop_image_writer()
+        provenance = folder / "provenance"
+        provenance.mkdir()
+        collection.write_json(provenance / "recording.json", meta)
+        collection.write_json(
+            provenance / "report.json", dict(success=True, fixture=True)
+        )
+        np.savez_compressed(provenance / "samples.npz", **arrays)
+    collection.assemble(root)
+    checks = collection.read_json(root / "dataset/provenance/validation.json")
+    assert checks["episodes"] == 3 and checks["frames"] == 9
+    assert checks["unique_layouts"] == checks["unique_seeds"] == 3
+    assert not (root / "upload_result.json").exists()
