@@ -1,6 +1,14 @@
 <?xml version='1.0' encoding='utf-8'?>
 <mujoco model="orcahand_right">
+	<!-- Elliptic friction reduces regularization slip without raising friction. -->
+	<option cone="elliptic" impratio="10" />
 	<default>
+		<!-- Local to hand bodies: do not change an object's contact defaults.
+		     4 ms time constant is compatible with the native 2 ms timestep.
+		     Priority prevents a softer object's defaults diluting these contacts. -->
+		<default class="orca_right_contact">
+			<geom solref="0.004 1" solimp="0.999 0.9999 0.001" priority="1" />
+		</default>
 		<geom type="mesh" friction="1 0.005 0.001" condim="3" margin="0.0005" contype="1" conaffinity="1" />
 		<joint type="hinge" limited="true" damping="0.1" armature="0.001" margin="0.01" frictionloss="0.001" />
 		<position ctrllimited="true" forcelimited="true" forcerange="-1 1" kp="2.0" />
