@@ -59,9 +59,10 @@ For a policy or your own controller, use the registered Gymnasium environment:
 
 ```python
 import gymnasium as gym
-import orca_sim  # Registers the environments.
+from orca_sim import register_envs
 from orca_sim.mujoco_bimanual import CUBE_SPAWN_REGIONS
 
+register_envs()
 env = gym.make(
     "OrcaBimanualPandaCubeStackingMujoco-v0",
     frame_skip=50,  # 50 physics ticks of 1 ms: 20 Hz control.
