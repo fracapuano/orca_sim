@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ORCA · Collection monitor</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script src="/dashboard.js" defer></script>
+</head>
+<body>
+<main>
+  <header><div><div class="eyebrow">ORCA / LIVE OPERATIONS</div><h1>Collection monitor</h1></div><div class="connection"><span id="connection">Connecting</span><small id="updated">Waiting for first sample</small></div></header>
+  <div id="warning" class="warning" role="alert" hidden></div>
+  <section class="panel progress-panel" aria-label="Dataset collection progress">
+    <div class="section-label"><span>VALIDATED DEMONSTRATIONS</span><span id="run-status">—</span></div>
+    <div class="progress-heading"><div><strong id="accepted">—</strong><span class="target" id="target"> / 200</span></div><span id="percent">0%</span></div>
+    <progress id="overall-progress" max="200" value="0" aria-label="Validated episodes"></progress>
+    <div id="counts" class="counts">Reading collection state…</div>
+    <div class="timing"><div><small>ELAPSED</small><span id="elapsed">—</span></div><div><small>ACCEPTED / HOUR</small><span id="rate">—</span></div><div><small>RECORDING ETA · ESTIMATE</small><span id="eta">Measuring first batch</span></div></div>
+    <small class="note">Only validated episodes count. ETA uses accepted throughput, including retries; final assembly and upload are additional.</small>
+  </section>
+  <div class="section-heading"><h2>Hardware</h2><span>Host-wide · sampled every 2 seconds</span></div>
+  <section class="metrics">
+    <article class="panel metric"><div class="section-label">CPU <span id="cpu-cores">— cores</span></div><div class="metric-value" id="cpu">—</div><svg id="cpu-chart" class="spark" role="img" aria-label="Host CPU utilization, last five minutes" viewBox="0 0 300 48" preserveAspectRatio="none"></svg><div class="note" id="job-cpu">Collection share: —</div></article>
+    <article class="panel metric"><div class="section-label">GPU <span id="gpu-model">Apple GPU</span></div><div class="metric-value" id="gpu">—</div><svg id="gpu-chart" class="spark" role="img" aria-label="GPU utilization, last five minutes" viewBox="0 0 300 48" preserveAspectRatio="none"></svg><div class="note" id="gpu-detail">Reading hardware counters</div></article>
+    <article class="panel metric"><div class="section-label">UNIFIED MEMORY <span id="memory-total">—</span></div><div class="metric-value" id="memory">—</div><progress id="memory-bar" max="100" value="0" aria-label="Memory usage"></progress><div class="note" id="memory-detail">—</div></article>
+    <article class="panel metric"><div class="section-label">DISK SPACE <span>Collection volume</span></div><div class="metric-value" id="disk">—</div><progress id="disk-bar" max="100" value="0" aria-label="Disk used"></progress><div class="note" id="disk-detail">—</div></article>
+  </section>
+  <div class="section-heading"><h2>Recording workers</h2><span>Same scene · different cube XY</span></div>
+  <section id="workers" class="workers" aria-label="Recording worker progress"></section>
+  <section class="panel core-panel"><div class="section-label">CPU CORE ACTIVITY <span id="load">—</span></div><div id="cores" class="cores"></div><div class="note">CPU percentages above use total host capacity. Process CPU below uses 100% per logical core.</div></section>
+  <div class="section-heading"><h2>Collection processes</h2><span id="job-memory">—</span></div>
+  <section class="panel table-panel"><div class="table-scroll"><table><thead><tr><th>Role</th><th>PID</th><th>CPU</th><th>RSS</th><th>Age</th></tr></thead><tbody id="processes"></tbody></table></div><div class="note">RSS is resident process memory; shared pages can be counted more than once. GPU memory shares system RAM.</div></section>
+  <details class="panel events"><summary>Recent collection events</summary><pre id="events">Waiting…</pre></details>
+  <footer><span id="dataset">Private dataset · 200 episodes</span><span>Read-only · loopback only · no remote telemetry</span></footer>
+</main>
+</body>
+</html>

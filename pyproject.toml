@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orca_sim"
-version = "0.1.0"
+version = "0.1.0+fracapuano.2"
 description = "ORCA hand simulation environment using Gymnasium and Mujoco."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,14 +17,37 @@ dependencies = [
   "numpy>=1.26",
 ]
 
+[project.urls]
+Repository = "https://github.com/fracapuano/orca_sim"
+
 [project.optional-dependencies]
+render = [
+  "imageio>=2.34",
+  "imageio-ffmpeg>=0.5",
+  "pillow>=10.1",
+]
+panda = [
+  "mujoco>=3.3",
+  "orca_arm @ git+https://github.com/fracapuano/orca_arm.git@d92e47106d282edde6230170aa6e70429a5dccea",
+]
 dev = [
   "pytest>=8",
 ]
+monitor = [
+  "psutil>=5.9",
+]
+
+[project.scripts]
+orca-sim-stack = "orca_sim.demos.panda_grasp:main"
+orca-sim-pose-editor = "orca_sim.pose_editor:main"
+orca-sim-bimanual = "orca_sim.demos.bimanual:main"
+orca-sim-bimanual-stack = "orca_sim.demos.bimanual_stack:main"
+orca-sim-collection-monitor = "orca_sim.collection_monitor:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["slow: end-to-end physics regressions"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -36,6 +59,12 @@ where = ["src"]
 [tool.setuptools.package-data]
 orca_sim = [
   "*.xml",
+  "scenes/*.xml",
+  "assets/mujoco/*.json",
+  "assets/mujoco/*.html",
+  "assets/monitor/*.html",
+  "assets/monitor/*.css",
+  "assets/monitor/*.js",
   "scenes/*/*.xml",
   "assets/mjcf/*.xml",
   "assets/mjcf/*/*.xml",
@@ -45,5 +74,9 @@ orca_sim = [
   "assets/mjcf/right/collision/*.stl",
   "models/mjcf/*.mjcf",
   "models/*/*.mjcf",
+  "models/*/mjcf/*.mjcf",
+  "models/*/mjcf/*.xml",
+  "models/*/assets/*.xml",
+  "models/*/assets/*/*.stl",
   "models/*/assets/mjcf/*/*.stl",
 ]

@@ -12,8 +12,12 @@ from orca_sim.envs import (
 )
 from orca_sim.registry import register_envs
 from orca_sim.task_envs import OrcaHandRightCubeOrientation
+from orca_sim.mujoco_panda import OrcaPandaCubeStackingMujoco
+from orca_sim.mujoco_bimanual import OrcaBimanualPandaCubeStackingMujoco
 
 __all__ = [
+    "OrcaBimanualPandaCubeStackingMujoco",
+    "OrcaPandaCubeStackingMujoco",
     "OrcaHandCombined",
     "OrcaHandCombinedExtended",
     "OrcaHandLeft",

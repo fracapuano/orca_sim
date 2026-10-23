@@ -1,0 +1,29 @@
+"use strict";
+const el=id=>document.getElementById(id);
+const set=(id,value)=>{el(id).textContent=value;};
+const gib=n=>Number.isFinite(n)?`${(n/1024**3).toFixed(1)} GiB`:"—";
+const pct=n=>Number.isFinite(n)?`${n.toFixed(1)}%`:"—";
+const duration=s=>{if(!Number.isFinite(s))return "—"; s=Math.max(0,Math.round(s)); const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}h ${m}m`:`${m}m ${s%60}s`;};
+function node(tag,text,className){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(className)n.className=className;return n;}
+function progress(value,label){const p=node("progress");p.max=100;p.value=value;p.setAttribute("aria-label",label);return p;}
+function spark(id,history,key){const svg=el(id), ns="http://www.w3.org/2000/svg";svg.replaceChildren();const baseline=document.createElementNS(ns,"line");Object.entries({x1:0,y1:47,x2:300,y2:47}).forEach(([k,v])=>baseline.setAttribute(k,v));svg.append(baseline);const valid=history.filter(d=>Number.isFinite(d[key]));if(valid.length<2)return;const end=history.at(-1).time,start=end-300;const path=document.createElementNS(ns,"path");path.setAttribute("d",valid.map((d,i)=>`${i?'L':'M'}${Math.max(0,(d.time-start)/300*300).toFixed(1)},${(46-Math.max(0,Math.min(100,d[key]))*.44).toFixed(1)}`).join(" "));svg.append(path);}
+function render(data){
+  if(!data.ready)throw Error(data.error||"Waiting for first hardware sample");
+  const c=data.collection,h=data.hardware;
+  document.body.classList.remove("offline");set("connection","● LIVE");set("updated",`Updated ${new Date(data.sampled_unix*1000).toLocaleTimeString()}`);
+  const warnings=[...(c.warnings||[])];if(Date.now()/1000-data.sampled_unix>10)warnings.push("Hardware sampling is stale.");el("warning").hidden=!warnings.length;el("warning").textContent=warnings.join(" ");
+  set("run-status",({recording:"COLLECTING",assembling:"ASSEMBLING / UPLOADING",uploaded:"UPLOADED",complete_local:"COMPLETE · LOCAL",stopped:"STOPPED"})[c.status]||c.status.toUpperCase());
+  set("accepted",c.accepted??"—");set("target",` / ${c.target??200}`);set("percent",pct(c.percent));el("overall-progress").max=c.target||200;el("overall-progress").value=c.accepted||0;
+  const counts=c.counts||{};set("counts",`${counts.recording||0} recording  ·  ${counts.packaging||0} encoding / validating  ·  ${counts.awaiting_package||0} queued  ·  ${counts.failed||0} failed attempts`);
+  set("elapsed",duration(c.elapsed_seconds));set("rate",c.episodes_per_hour?c.episodes_per_hour.toFixed(1):"Measuring");set("eta",c.eta_seconds!=null?`~${duration(c.eta_seconds)}`:c.accepted>=c.target?"Recording complete":c.status==="stopped"?"Stopped":"Measuring first batch");
+  const workers=el("workers");workers.replaceChildren();for(const w of c.workers||[]){const card=node("article",undefined,"panel worker"),title=node("div",undefined,"worker-title");title.append(node("span",`Attempt ${String(w.attempt+1).padStart(3,"0")}`),node("span",w.status.replaceAll("_"," "),"worker-status"));card.append(title,node("div",w.phase,"worker-phase"),node("div",`${w.sim_seconds.toFixed(1)} / ${w.sim_total} sim seconds`,"worker-time"),progress(w.percent,`Attempt ${w.attempt+1} simulation progress`),node("div",`Seed ${w.seed} · PID ${w.pid??"—"} · ${w.frames.toLocaleString()} frames / camera`,"worker-seed"));workers.append(card);}if(!workers.children.length)workers.append(node("div","No recording workers active","empty"));
+  set("cpu",pct(h.cpu_percent));set("cpu-cores",`${h.logical_cores} cores`);set("job-cpu",`Collection share: ${pct(h.job_cpu_percent)} of host`);spark("cpu-chart",data.history,"cpu");
+  set("gpu",h.gpu.available?pct(h.gpu.percent):"Unavailable");set("gpu-model",h.gpu.model||"No counter");set("gpu-detail",h.gpu.available?`Shared memory in use: ${gib(h.gpu.memory_bytes)}`:h.gpu.reason);spark("gpu-chart",data.history,"gpu");
+  set("memory",gib(h.memory_used_bytes));set("memory-total",`of ${gib(h.memory_total_bytes)}`);el("memory-bar").value=h.memory_percent;set("memory-detail",`${gib(h.memory_available_bytes)} available · swap ${gib(h.swap_used_bytes)}`);
+  set("disk",`${gib(h.disk_free_bytes)} free`);el("disk-bar").value=h.disk_used_percent;const io=h.disk_io;set("disk-detail",`I/O: ${io.read_mbps?.toFixed(1)??"—"} MB/s read · ${io.write_mbps?.toFixed(1)??"—"} write`);
+  set("load",`Load ${h.load_average.map(n=>n.toFixed(1)).join(" / ")}`);const cores=el("cores");cores.replaceChildren();h.cores.forEach((value,i)=>{const cell=node("div",undefined,"core"),label=node("div",undefined,"core-label");label.append(node("span",`${i+1}`),node("span",`${Math.round(value)}%`));cell.append(label,progress(value,`CPU ${i+1} utilization`));cores.append(cell);});
+  set("job-memory",`${gib(h.job_rss_bytes)} summed process RSS`);const rows=el("processes");rows.replaceChildren();for(const p of data.processes){const tr=node("tr");for(const value of [p.role,p.pid,pct(p.cpu_percent),gib(p.rss_bytes),duration(p.elapsed_seconds)])tr.append(node("td",value));rows.append(tr);}if(!rows.children.length){const tr=node("tr"),td=node("td","No collection processes running");td.colSpan=5;tr.append(td);rows.append(tr);}
+  set("events",data.events.join("\n")||"No collection events yet");set("dataset",`${c.private?"Private":""} · ${c.repo_id||"Collection"}`);
+}
+async function refresh(){try{const response=await fetch("/api/status",{cache:"no-store",signal:AbortSignal.timeout(7000)});if(!response.ok)throw Error(`Monitor HTTP ${response.status}`);render(await response.json());}catch(error){document.body.classList.add("offline");set("connection","● DISCONNECTED");el("warning").hidden=false;el("warning").textContent=`Dashboard is not receiving live samples: ${error.message}. Displayed values may be stale; this does not stop the collection.`;}finally{setTimeout(refresh,2000);}}
+refresh();

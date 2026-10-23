@@ -5,6 +5,16 @@ from orca_sim.versions import list_versions, resolve_scene_path
 
 def register_envs() -> None:
     registry = gym.registry
+    if "OrcaBimanualPandaCubeStackingMujoco-v0" not in registry:
+        gym.register(
+            id="OrcaBimanualPandaCubeStackingMujoco-v0",
+            entry_point="orca_sim.mujoco_bimanual:OrcaBimanualPandaCubeStackingMujoco",
+        )
+    if "OrcaPandaCubeStackingMujoco-v0" not in registry:
+        gym.register(
+            id="OrcaPandaCubeStackingMujoco-v0",
+            entry_point="orca_sim.mujoco_panda:OrcaPandaCubeStackingMujoco",
+        )
     specs = {
         "OrcaHandLeft": ("orca_sim.envs:OrcaHandLeft", "scene_left.xml"),
         "OrcaHandLeftExtended": (
