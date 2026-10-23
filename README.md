@@ -10,12 +10,13 @@ The original ORCA hand project is at [orcahand.com](https://www.orcahand.com/).
 
 ## Install
 
-Use Python 3.11 in a fresh virtual environment. During review, the full stack
-lives on `fracapuano/mujoco-06-fork-packaging`; `main` has not been changed.
+Use Python 3.11 in a fresh virtual environment. This fork's `main` includes
+the native single-arm and bimanual Panda/ORCA environments, camera support,
+scripted stacking experts, and randomized demonstration collection.
 Install this Git checkout, **not** the upstream PyPI release:
 
 ```bash
-git clone --branch fracapuano/mujoco-06-fork-packaging https://github.com/fracapuano/orca_sim.git
+git clone https://github.com/fracapuano/orca_sim.git
 cd orca_sim
 uv venv .venv --python 3.11
 source .venv/bin/activate
@@ -30,7 +31,7 @@ python -m pip install -e '.[panda,render,dev]' -c requirements/mujoco-validation
 ```
 The import/package name remains `orca_sim`; do not install the upstream and
 fork distributions into the same environment. The local version identifier
-`0.1.0+fracapuano.2` distinguishes this cleaned review stack from the earlier
+`0.1.0+fracapuano.2` distinguishes this native MuJoCo implementation from the earlier
 mixed experimental branch. No release has been published to PyPI.
 
 Extras: `panda` installs the pinned bare Panda MJCF/meshes from `orca_arm`;
@@ -43,34 +44,64 @@ The validation constraints record the tested Python dependencies rather than
 claiming identical contacts on every supported MuJoCo version. The Panda
 asset dependency is fixed at `d92e47106d282edde6230170aa6e70429a5dccea`.
 Fork publishing is disabled by a repository-identity guard in the inherited
-PyPI workflow. Merging these review branches does not publish a package.
+PyPI workflow. Install this fork from Git rather than the upstream PyPI package.
 
-## Review stack and ownership
+## Bimanual quick start
 
-Each branch below adds one commit on the preceding branch. Review the PRs
-bottom-up in this order; the final branch contains the complete native task.
+After installation, validate a complete scripted pick/place/stack episode:
 
-| Layer | Branch after `fracapuano/` | What belongs here |
-| --- | --- | --- |
-| 1 | `mujoco-01-hand-contacts` | Native left/right v2 MJCF collision masks, contact/solver response, isolated squeeze regression; **no limit/gain changes**. |
-| 2 | `mujoco-02-panda-home` | Native MJCF composition, Gym action interface, canonical arm/hand/base home, shared bench and baseline task fixture. |
-| 3 | `mujoco-03-cube-layout` | Saved cube/target positions, 20% smaller cubes and density-preserving mass/inertia. |
-| 4 | `mujoco-04-palm-first-stacking` | Palm-contact gate, wrap/lift/stack controller, installed rollout command and dynamic regressions. |
-| 5 | `mujoco-05-scene-editors` | Local base/hand/cube sliders, collision-aware saves and reload tests. |
-| 6 | `mujoco-06-fork-packaging` | Fork install/review guide, validation constraints, version and publication safeguard. |
+```bash
+orca-sim-bimanual-stack --check --output-dir renders/bimanual_stack
+# Add --video to record the front camera.
+```
 
-The first PR targets this fork's `main`; each later PR targets its immediate
-predecessor, keeping its diff focused. Merge bottom-up using merge commits
-to preserve ancestry, then retarget the next PR to `main`. Squashing or
-rebasing a lower layer requires rebasing its descendants before continuing.
-Do not delete a base branch while another open PR still targets it.
+For a policy or your own controller, use the registered Gymnasium environment:
 
-All changes in this stack belong in **`orca_sim`**. `orca_arm` supplies
+```python
+import gymnasium as gym
+import orca_sim  # Registers the environments.
+from orca_sim.mujoco_bimanual import CUBE_SPAWN_REGIONS
+
+env = gym.make(
+    "OrcaBimanualPandaCubeStackingMujoco-v0",
+    frame_skip=50,  # 50 physics ticks of 1 ms: 20 Hz control.
+    target_marker="x",
+    cube_spawn_regions=CUBE_SPAWN_REGIONS,
+)
+try:
+    observation, info = env.reset(seed=42)
+    home_targets = env.unwrapped.data.ctrl.copy()
+    observation, reward, terminated, truncated, info = env.step(home_targets)
+finally:
+    env.close()
+```
+
+Actions are 48 absolute joint-position targets in radians: right Panda 7 +
+native left hand 17, then left Panda 7 + native right hand 17. The state-vector
+observation contains all model positions and velocities; camera images are
+available separately through `env.unwrapped.render_camera(name)`. The low-level
+step reward is the red cube's lift height, and the environment does not impose
+an episode horizon or terminate on a completed stack. Set those conditions in
+your rollout loop; the scripted demo performs its own physical task checks.
+Omit `cube_spawn_regions` for the saved fixed cube layout.
+
+## Source layout and ownership
+
+| File under `src/orca_sim/` | Responsibility |
+| --- | --- |
+| `mujoco_bimanual.py` | Bimanual scene assembly, reset distribution, joint ordering, cameras and IK. |
+| `mujoco_panda.py` | Shared native Panda/hand composition and Gymnasium physics stepping. |
+| `bimanual_stacking.py` | Scripted two-arm pick/place/stack controller. |
+| `cube_sampling.py`, `assets/mujoco/bimanual_*.json` | Cube sampling, saved robot homes and object layout. |
+| `demos/bimanual_stack.py` | Complete scripted episode and physical outcome checks. |
+| `demos/collect_lerobot_smoke.py`, `demos/collect_randomized.py` | Camera/state/action recording and bounded randomized dataset collection. |
+
+Simulation fixes, controllers and defaults belong in **`orca_sim`**. `orca_arm` supplies
 unchanged, pinned Panda assets; its preassembled OrcaPanda MJCF/URDF is not
 used by this native task. `orca_core` is not modified or required. Genesis
 environments, conversion code, abandoned force adapters and old experiment
 scripts are deliberately excluded. The previous `fracapuano/genesis-sim`
-branch remains an unchanged archive, not the base of these PRs.
+branch remains an unchanged archive.
 
 ### Validate or reproduce the demonstration
 
@@ -97,8 +128,7 @@ to the environment. Do not depend on writable `site-packages`.
 
 ### Local bimanual MuJoCo setup
 
-The local `fracapuano/mujoco-bimanual` branch adds
-`OrcaBimanualPandaCubeStackingMujoco`: two native Panda arms, the corrected
+`OrcaBimanualPandaCubeStackingMujoco` provides two native Panda arms, the corrected
 native right **and left** ORCA hands, and the same 5.6 cm cubes. It does not
 convert URDFs or use the older preassembled bimanual model.
 
